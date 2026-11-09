@@ -46,7 +46,7 @@ jobs:
       group: docs-${{ github.ref }}
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -162,7 +162,7 @@ jobs:
           esac
       # This checkout provides the assembly script; the site root comes from
       # the checkout of the release tag below.
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       # No caches: the deploy builds what the release published.
@@ -186,7 +186,7 @@ jobs:
             echo "tag=$(jq -r .root.tag "$RUNNER_TEMP/plan.json")"
             echo "version=$(jq -r .root.version "$RUNNER_TEMP/plan.json")"
           } >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: refs/tags/${{ steps.plan.outputs.tag }}
           path: root
