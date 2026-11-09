@@ -1,0 +1,44 @@
+version: 2
+updates:
+  # Commit message prefixes produce Conventional Commits titles; the type
+  # decides whether the update makes the Release PR propose a release (see
+  # CONTRIBUTING.md). The cooldown waits a week before proposing a newly
+  # published version; it does not delay security updates.
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: deps
+  # The base image in the Dockerfile, pinned by digest. Monthly, because its
+  # digest changes often and every update makes the Release PR propose a patch.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: deps
+  - package-ecosystem: npm
+    directory: /docs
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: docs
+      include: scope
+    groups:
+      documentation:
+        patterns: ['*']
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: ci

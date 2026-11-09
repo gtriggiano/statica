@@ -1,0 +1,102 @@
+name: Security
+
+# Vulnerabilities appear without any change to the code, so these scans run on
+# a schedule. Before the first release only the scan of main has something to
+# scan; the jobs for the latest release are skipped with a notice.
+on:
+  schedule:
+    - cron: '41 5 * * 1'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  main:
+    name: Go vulnerabilities (main)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+      - run: make vuln
+
+  latest:
+    name: Latest release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      # The latest stable release: the API leaves out drafts and release
+      # candidates. Only "not found" means that there is none yet; any other
+      # error fails the job instead of skipping the scans.
+      - name: Find the latest release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          if out=$(gh api "repos/$REPOSITORY/releases/latest" --jq .tag_name 2>&1); then
+            echo "tag=$out" >> "$GITHUB_OUTPUT"
+            echo "version=${out#v}" >> "$GITHUB_OUTPUT"
+          elif grep -q 'HTTP 404' <<< "$out"; then
+            echo "::notice::No published release yet: nothing to scan."
+          else
+            echo "$out" >&2
+            exit 1
+          fi
+
+  release:
+    name: Go vulnerabilities (latest release)
+    needs: latest
+    if: needs.latest.outputs.tag != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: refs/tags/${{ needs.latest.outputs.tag }}
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: false
+      # A finding here means the published version is affected: fix it on main
+      # and release a patch.
+      - run: make vuln
+
+  image:
+    name: Image scan (latest release)
+    needs: latest
+    if: needs.latest.outputs.version != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write # upload the SARIF results to code scanning
+    steps:
+      # Grype pulls the image for the runner's platform, linux/amd64. The image
+      # of a published release must exist: if it cannot be pulled, the job fails.
+      - id: scan
+        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        with:
+          image: ghcr.io/gtriggiano/statica:${{ needs.latest.outputs.version }}
+          fail-build: false
+          output-format: sarif
+      - uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          sarif_file: ${{ steps.scan.outputs.sarif }}
+          category: grype-image

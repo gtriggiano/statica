@@ -1,0 +1,130 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: Go checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+      - run: make check
+      - run: make fuzz
+      - name: Cross-compile Linux targets
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath ./...
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o bin/statica-linux-amd64 ./cmd/statica
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath ./...
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -o bin/statica-linux-arm64 ./cmd/statica
+      - run: make workflows-check
+
+  tests:
+    name: Go tests (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux/arm64
+            runner: ubuntu-24.04-arm
+          - name: macOS
+            runner: macos-latest
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+      - run: make check
+
+  workflows:
+    name: Workflow audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      # Keep version equal to ZIZMOR_VERSION in the Makefile.
+      - uses: zizmorcore/zizmor-action@45d7276c9ca790aabd705e31ca99c6185c3e76dd # v0.8.1
+        with:
+          version: 1.32.0
+          advanced-security: false
+          annotations: true
+
+  release-dry-run:
+    name: Release dry run
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # No cache, as in the release jobs: the dry run must build what a release
+      # would build.
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: false
+      # Keep both versions equal to GORELEASER_VERSION and SYFT_VERSION in the Makefile.
+      - uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          syft-version: v1.55.0
+      - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+        with:
+          version: v2.19.0
+          install-only: true
+      - run: goreleaser check
+      # Builds every binary, archive and SBOM, and one image per platform,
+      # without publishing anything.
+      - run: goreleaser release --snapshot --clean
+      - name: Run the linux/amd64 image
+        run: |
+          set -euo pipefail
+          version=$(jq -r .version dist/metadata.json)
+          image="ghcr.io/gtriggiano/statica:$version-amd64"
+          out=$(docker run --rm "$image" version)
+          echo "$out"
+          grep -qF "statica $version (revision $(git rev-parse HEAD);" <<< "$out"
+          docker run --rm --read-only \
+            -v "$PWD/docs/examples/container.yaml:/etc/statica/config.yaml:ro" \
+            "$image" config validate
+
+  vulnerabilities:
+    name: Go vulnerabilities
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+      - run: make vuln

@@ -1,0 +1,249 @@
+name: Documentation
+
+# Pull requests and pushes to main build and check the site of the commit, an
+# archived version of it and the assembly of a site with versions. A deploy
+# never builds main: it builds the site root from the latest release (or
+# root-ref), adds the older versions from the documentation archives attached
+# to the releases (docs/scripts/assemble-site.mjs) and publishes the result. It
+# runs by hand on main with "deploy", and when the Release workflow calls it
+# after publishing a release.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: Assemble the site from the releases and publish it to GitHub Pages (main only)
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      root-ref:
+        description: Release tag vX.Y.Z to build the site root from; empty for the latest release
+        type: string
+        default: ''
+      deploy:
+        description: Assemble the site from the releases and publish it to GitHub Pages
+        type: boolean
+        default: false
+      audit:
+        description: Run make docs-audit
+        type: boolean
+        default: true
+
+permissions: {}
+
+jobs:
+  build:
+    name: Build documentation
+    if: ${{ !inputs.deploy }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    concurrency:
+      group: docs-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: docs/.node-version
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+      - run: make docs-install
+      # Skipped only when a caller passes audit: false (inputs.audit is null
+      # for pull requests and pushes, and null == false in expressions).
+      - if: toJSON(inputs.audit) != 'false'
+        run: make docs-audit
+      - name: Select the site root
+        env:
+          REPOSITORY_NAME: ${{ github.event.repository.name }}
+          CONFIGURED_ROOT: ${{ vars.DOCS_BASE }}
+        run: |
+          root="${CONFIGURED_ROOT:-/$REPOSITORY_NAME/}"
+          {
+            echo "DOCS_SITE_ROOT=$root"
+            echo "DOCS_BASE=$root"
+          } >> "$GITHUB_ENV"
+      - name: Build site
+        run: make docs-build
+      # Renders every page in the runner's Google Chrome (/usr/bin/google-chrome).
+      - name: Check diagrams
+        run: make docs-check
+      - name: Keep the site for the assembly test
+        run: cp -R docs/.vitepress/dist "$RUNNER_TEMP/root"
+      # The same pages as the Release workflow builds them for a release
+      # candidate, under next/ with its banner.
+      - name: Build and check an archived version
+        env:
+          DOCS_VERSION: 0.3.0-rc.1
+        run: |
+          set -euo pipefail
+          export DOCS_BASE="${DOCS_SITE_ROOT}next/"
+          make docs-build
+          make docs-check
+          mkdir "$RUNNER_TEMP/archives"
+          for version in 0.1.3 0.2.1 0.3.0-rc.1; do
+            tar -C docs/.vitepress/dist -czf "$RUNNER_TEMP/archives/statica_${version}_docs.tar.gz" .
+          done
+      # Two minors, a newer release without its archive, a draft and release
+      # candidates, one older and one newer than the latest release.
+      - name: Test the assembly of a site with versions
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          cat > releases.json <<'EOF'
+          [[
+            {"tag_name": "v0.4.0", "draft": true, "assets": [{"name": "statica_0.4.0_docs.tar.gz"}]},
+            {"tag_name": "v0.3.0-rc.1", "draft": false, "assets": [{"name": "statica_0.3.0-rc.1_docs.tar.gz"}]},
+            {"tag_name": "v0.2.1", "draft": false, "assets": [{"name": "statica_0.2.1_docs.tar.gz"}]},
+            {"tag_name": "v0.2.0", "draft": false, "assets": [{"name": "statica_0.2.0_docs.tar.gz"}]}
+          ], [
+            {"tag_name": "v0.2.0-rc.1", "draft": false, "assets": [{"name": "statica_0.2.0-rc.1_docs.tar.gz"}]},
+            {"tag_name": "v0.1.10", "draft": false, "assets": []},
+            {"tag_name": "v0.1.3", "draft": false, "assets": [{"name": "statica_0.1.3_docs.tar.gz"}]}
+          ]]
+          EOF
+          script="$GITHUB_WORKSPACE/docs/scripts/assemble-site.mjs"
+          node "$script" plan --releases releases.json > plan.json
+          node "$script" assemble --plan plan.json --root root --archives archives --out site
+          expect() {
+            if [ "$2" != "$3" ]; then
+              echo "::error::$1: expected $3, got $2"
+              exit 1
+            fi
+          }
+          expect "root tag" "$(jq -r .root.tag plan.json)" v0.2.1
+          expect "archives" "$(jq -c '[.archives[] | [.tag, .path]]' plan.json)" \
+            '[["v0.3.0-rc.1","next/"],["v0.2.1","v0.2/"],["v0.1.3","v0.1/"]]'
+          for page in index.html next/index.html v0.2/index.html v0.1/index.html; do
+            test -f "site/$page" || expect "site/$page" missing present
+          done
+          expect "versions.json" "$(jq -c . site/versions.json)" \
+            '{"latest":"0.2.1","versions":[{"version":"0.2.1","path":"v0.2/"},{"version":"0.1.3","path":"v0.1/"}],"next":{"version":"0.3.0-rc.1","path":"next/"}}'
+          echo '[{"tag_name": "v0.1.0-rc.1", "draft": false, "assets": []}]' > candidates.json
+          if node "$script" plan --releases candidates.json; then
+            echo "::error::plan succeeded without a release to build the site root from"
+            exit 1
+          fi
+
+  site:
+    name: Assemble documentation
+    if: inputs.deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read # list the releases and download their documentation archives
+    steps:
+      # Deploys run on main, or on a release tag when the Release workflow
+      # calls this one on its recovery path. In a called workflow,
+      # github.workflow_ref names the caller.
+      - name: Check the ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          case "$GITHUB_REF" in
+            refs/heads/main) ;;
+            refs/tags/v*)
+              if [[ "$WORKFLOW_REF" == */.github/workflows/docs.yml@* ]]; then
+                echo "::error::Run the Documentation workflow on main to deploy the site."
+                exit 1
+              fi
+              ;;
+            *)
+              echo "::error::Deploy the documentation from main, not from $GITHUB_REF."
+              exit 1
+              ;;
+          esac
+      # This checkout provides the assembly script; the site root comes from
+      # the checkout of the release tag below.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      # No caches: the deploy builds what the release published.
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: docs/.node-version
+          package-manager-cache: false
+      - name: Plan the site
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          ROOT_REF: ${{ inputs.root-ref }}
+        run: |
+          set -euo pipefail
+          gh api --paginate --slurp "repos/$REPOSITORY/releases" > "$RUNNER_TEMP/releases.json"
+          node docs/scripts/assemble-site.mjs plan --releases "$RUNNER_TEMP/releases.json" \
+            --root-tag "$ROOT_REF" > "$RUNNER_TEMP/plan.json"
+          cat "$RUNNER_TEMP/plan.json"
+          {
+            echo "tag=$(jq -r .root.tag "$RUNNER_TEMP/plan.json")"
+            echo "version=$(jq -r .root.version "$RUNNER_TEMP/plan.json")"
+          } >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: refs/tags/${{ steps.plan.outputs.tag }}
+          path: root
+          fetch-depth: 0
+          persist-credentials: false
+      - run: make -C root docs-install
+      # Skipped on manual deploys and when the caller passes audit: false, as
+      # the Release workflow does: an advisory published after a release cannot
+      # be fixed in its tag. Pull requests and main run the audit.
+      - if: inputs.audit
+        run: make -C root docs-audit
+      - name: Build and check the site root
+        env:
+          REPOSITORY_NAME: ${{ github.event.repository.name }}
+          CONFIGURED_ROOT: ${{ vars.DOCS_BASE }}
+          DOCS_VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          root="${CONFIGURED_ROOT:-/$REPOSITORY_NAME/}"
+          export DOCS_SITE_ROOT="$root" DOCS_BASE="$root"
+          make -C root docs-build
+          make -C root docs-check
+      - name: Download the documentation archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/archives"
+          jq -r '.archives[] | "\(.tag) \(.asset)"' "$RUNNER_TEMP/plan.json" | while read -r tag asset; do
+            gh release download "$tag" --repo "$REPOSITORY" --pattern "$asset" --dir "$RUNNER_TEMP/archives"
+          done
+      - name: Assemble the site
+        run: |
+          node docs/scripts/assemble-site.mjs assemble --plan "$RUNNER_TEMP/plan.json" \
+            --root root/docs/.vitepress/dist --archives "$RUNNER_TEMP/archives" --out "$RUNNER_TEMP/site"
+      - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
+        with:
+          path: ${{ runner.temp }}/site
+
+  deploy:
+    name: Deploy documentation
+    needs: site
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write # publish the site
+      id-token: write # authenticate the deployment to GitHub Pages
+    # A manual deploy and a release deploy never overlap.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
