@@ -1,0 +1,42 @@
+name: PR title
+
+# Squash merge makes the pull request title the commit message on main, which
+# release-please reads to compute the version and the changelog.
+#
+# pull_request, not pull_request_target: the action only reads the title
+# through the API, and on pull requests from forks GITHUB_TOKEN is still
+# available with read-only permissions, which is enough.
+on:
+  pull_request:
+    # edited: a new title. synchronize: a required check must report on every
+    # new head commit.
+    types: [opened, edited, synchronize, reopened]
+
+permissions: {}
+
+jobs:
+  title:
+    name: PR title
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: read # fetch the current title through the API
+    steps:
+      - uses: amannn/action-semantic-pull-request@2252a14e810aa9b85c2d560bd7070c802206ecf6 # v6.1.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # Keep in sync with "Commit messages and pull request titles" in
+          # CONTRIBUTING.md and with changelog-sections in release-please-config.json.
+          types: |
+            feat
+            fix
+            perf
+            deps
+            revert
+            docs
+            refactor
+            test
+            build
+            ci
+            chore

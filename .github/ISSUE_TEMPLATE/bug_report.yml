@@ -1,0 +1,56 @@
+name: Bug report
+description: Report behavior that differs from what the documentation describes
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before you paste anything, remove credentials, bucket names and hostnames
+        you do not want to publish. The
+        [troubleshooting guide](https://gtriggiano.github.io/statica/guide/troubleshooting.html)
+        lists the common causes of each symptom.
+  - type: input
+    id: version
+    attributes:
+      label: statica version
+      description: >-
+        The output of `statica version`. For the container image, run the image
+        with the `version` command.
+      placeholder: statica 0.1.0 (revision 0123abc…; go1.27.3; built 2026-11-20T10:00:00Z)
+    validations:
+      required: true
+  - type: dropdown
+    id: installation
+    attributes:
+      label: How you run statica
+      options:
+        - Container image
+        - Release binary
+        - Built from source
+    validations:
+      required: true
+  - type: input
+    id: origin
+    attributes:
+      label: S3 service
+      description: AWS S3, or the S3-compatible service and its version.
+      placeholder: AWS S3
+  - type: textarea
+    id: behavior
+    attributes:
+      label: What happened, and what you expected
+      description: Include the request, for example a `curl -i` command, and the response you got.
+    validations:
+      required: true
+  - type: textarea
+    id: configuration
+    attributes:
+      label: Configuration
+      description: The relevant part of the configuration file.
+      render: yaml
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log lines
+      description: The access and lifecycle events around the problem.
+      render: text
