@@ -4,6 +4,7 @@
 # Local tooling and build output
 .cache/
 bin/
+dist/
 coverage.out
 coverage.html
 *.test
