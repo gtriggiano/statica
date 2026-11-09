@@ -1,6 +1,11 @@
 # Oh My Claude Code
 .omc/
 
+# Personal instructions and settings of coding agents
+CLAUDE.local.md
+.claude/settings.local.json
+AGENTS.override.md
+
 # Local tooling and build output
 .cache/
 bin/

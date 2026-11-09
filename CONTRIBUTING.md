@@ -30,6 +30,8 @@ docs/.vitepress/     Site configuration, navigation and theme
 .github/             CI workflows, Dependabot configuration, issue and pull request templates
 .goreleaser.yaml     Release packaging: binaries, archives, checksums, SBOMs, image
 Dockerfile           Container image, built from the binaries GoReleaser compiles
+AGENTS.md            Instructions for AI coding agents; CLAUDE.md imports it for Claude Code
+.agents/skills/      Agent skills; .claude/skills/ links them for Claude Code
 ```
 
 ## Make targets
@@ -148,6 +150,16 @@ Only the visible types, and breaking changes of any type, make release-please pr
 - **Reverts.** GitHub's **Revert** button proposes the title `Revert "fix(cache): …"`, which the check rejects: rename it to `revert: fix(cache): …`.
 
 The pull request template repeats these rules. Dependabot titles already follow them (see [Dependabot](#dependabot)).
+
+## AI coding agents
+
+`AGENTS.md` condenses this guide for AI coding agents: the commands, the checks to run for each kind of change, the design rules and the conventions. Codex, Antigravity, Cursor, GitHub Copilot and other tools read it directly; Claude Code reads it through `CLAUDE.md`, which imports it. Procedures for recurring tasks, such as adding a configuration field, are skills in `.agents/skills/`, in the [Agent Skills](https://agentskills.io/) format. Claude Code does not read that directory, so each skill has a symbolic link in `.claude/skills/` to its directory in `.agents/skills/`. `.claude/settings.json` lets Claude Code run the Make checks without asking and keeps its file tools away from the local credential files.
+
+- **Keep them in step with this guide.** A pull request that changes a rule here also updates `AGENTS.md` and the skills that state it. This guide wins when they disagree.
+- **Add a skill** in `.agents/skills/<name>/SKILL.md`, link it for Claude Code with `ln -s ../../.agents/skills/<name> .claude/skills/<name>`, and list it in the table at the end of `AGENTS.md`.
+- **Symbolic links on Windows.** Git checks the links out as plain text files unless the clone supports symbolic links: turn on Developer Mode, or work as an administrator, and clone with `git clone -c core.symlinks=true`. Without them Claude Code does not find the skills; the other tools and the tests are not affected.
+- **Tests guard them.** `make check` runs the tests in `internal/agentdocs`. They fail when a skill in `.agents/skills/` has no link in `.claude/skills/` or its link leads elsewhere, when `AGENTS.md` does not list a skill, and when `CLAUDE.md` does not import `AGENTS.md`. They also fail when one of these files names something that does not exist: a path under `cmd/`, `internal/`, `docs/`, `.github/`, `.agents/` or `.claude/`, a Go file, a Make target, a test, or a relative link or its anchor. Other names, such as Go identifiers, are not checked.
+- **Personal instructions stay local.** Git ignores `CLAUDE.local.md`, `.claude/settings.local.json` and `AGENTS.override.md`.
 
 ## Releases
 
