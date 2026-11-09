@@ -1,0 +1,14 @@
+# One site served from the root of an S3 bucket by the container image. Both
+# listeners accept connections on every interface of the container, because the
+# default addresses (127.0.0.1) cannot be reached from outside it. Set your
+# bucket and its region and mount this file at /etc/statica/config.yaml. Expose
+# port 9090 only to your health checks and to Prometheus. Credentials come from
+# the standard AWS credential chain (for example the environment or the role of
+# the container), never from this file.
+s3:
+  bucket: example-websites
+  region: eu-west-1
+server:
+  listen: ":8080"
+admin:
+  listen: ":9090"

@@ -1,0 +1,123 @@
+# An instance that serves HTTPS behind a load balancer. Most values are the
+# defaults, written out so that you can see and change them.
+# The bucket name comes from SITE_BUCKET: set it for every statica config and
+# statica serve command. config validate and serve read the TLS certificate and
+# key below and fail without them; config print does not read them. Credentials
+# come from the standard AWS credential chain, never from this file.
+# Other hostnames get 421 Misdirected Request. Omit hosts to accept every valid
+# hostname.
+hosts: [docs.example.com, www.docs.example.com]
+server:
+  listen: ":8443"
+  tls:
+    cert_file: /run/tls/tls.crt
+    key_file: /run/tls/tls.key
+    min_version: "1.2"
+  # The load balancer's network. Forwarded client IPs and request IDs are
+  # trusted only from these peers.
+  trusted_proxies: [10.20.0.0/16]
+  client_ip_header: X-Forwarded-For
+  request_id_header: X-Request-ID
+  max_forwarded_hops: 16
+  read_header_timeout: 5s
+  response_header_timeout: 30s
+  write_idle_timeout: 60s
+  idle_timeout: 60s
+  # 0s: no limit on a whole request; the other server and s3 timeouts still
+  # apply.
+  request_timeout: 0s
+  shutdown_timeout: 30s
+  max_header_bytes: 32768
+  max_connections: 1024
+  max_concurrent_requests: 256
+admin:
+  # No authentication: keep it on loopback or on a private address that your
+  # orchestrator and Prometheus can reach.
+  listen: "127.0.0.1:9090"
+  # Readiness waits for the first successful check of health.txt under the
+  # prefix, so publish that object.
+  origin_health:
+    enabled: true
+    key: health.txt
+    interval: 30s
+    timeout: 3s
+    failure_threshold: 3
+    success_threshold: 1
+s3:
+  bucket: "${SITE_BUCKET}"
+  region: eu-west-1
+  # One release of the site. Point it at a new release prefix and restart to
+  # deploy.
+  prefix: docs/releases/2026-11-06/
+  insecure_skip_verify: false
+  response_header_timeout: 10s
+  read_idle_timeout: 30s
+  max_attempts: 2
+  features:
+    conditional_reads: true
+    range_reads: true
+    checksums: false
+cache:
+  enabled: true
+  max_bytes: 128MiB
+  max_entries: 10000
+  max_object_bytes: 2MiB
+  max_fill_bytes: 32MiB
+  max_concurrent_fills: 16
+  fill_timeout: 30s
+  ttl: 5m
+  negative_ttl: 5s
+  stale_if_error: 0s
+  rules:
+    - match:
+        prefix: /assets/
+      ttl: 1h
+    - match:
+        exact: /health.txt
+      enabled: false
+index: index.html
+not_found: 404.html
+compression:
+  mode: precompressed
+  encodings: [br, gzip]
+# The default: an origin 403 Forbidden is answered as 404 Not Found (502 Bad
+# Gateway with bad_gateway), but never treated as a missing object: no 404 page,
+# no SPA fallback, nothing cached.
+errors:
+  access_denied: not_found
+redirects:
+  - from: /page/x?postId={postId}
+    to: /blog/post/{postId}
+    status: 308
+    query: drop
+    captures:
+      postId:
+        pattern: '[0-9]+'
+headers:
+  set:
+    Referrer-Policy: strict-origin-when-cross-origin
+cache_control:
+  # auto forwards the origin's Cache-Control or Expires, or sends no-store when
+  # they are malformed. Without either, it sends max-age from the path's memory
+  # cache TTL, or no-cache when caching is off or the TTL is under 1s.
+  default: auto
+  rules:
+    - match:
+        prefix: /assets/
+      value: "public, max-age=31536000, immutable"
+observability:
+  log_level: info
+  access_log: true
+  log_client_ip: true
+  # These are the defaults. A list you set replaces them, so keep these names
+  # and add the secret query parameters of your site.
+  redact_query_params:
+    - token
+    - access_token
+    - api_key
+    - password
+    - secret
+    - signature
+    - X-Amz-Credential
+    - X-Amz-Signature
+    - X-Amz-Security-Token

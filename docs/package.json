@@ -1,0 +1,23 @@
+{
+  "name": "statica-docs",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "docs:dev": "vitepress dev --host 127.0.0.1",
+    "docs:build": "vitepress build && node scripts/check-links.mjs",
+    "docs:check": "node scripts/check-diagrams.mjs",
+    "docs:preview": "vitepress preview --host 127.0.0.1"
+  },
+  "devDependencies": {
+    "mermaid": "12.3.0",
+    "playwright-core": "1.65.0",
+    "vitepress": "1.6.4"
+  },
+  "overrides": {
+    "vite": "6.4.6"
+  },
+  "engines": {
+    "node": ">=24 <25"
+  }
+}

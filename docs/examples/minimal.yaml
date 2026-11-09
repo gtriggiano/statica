@@ -1,0 +1,7 @@
+# One site served from the root of an S3 bucket; every other setting keeps its
+# default. Set your bucket and its region. Credentials come from the standard AWS
+# credential chain (for example the environment, the shared AWS files or the role
+# of the machine or container), never from this file.
+s3:
+  bucket: example-websites
+  region: eu-west-1

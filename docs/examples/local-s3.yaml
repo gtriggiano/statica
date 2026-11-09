@@ -1,0 +1,15 @@
+# A site under the prefix demo/ of a bucket on an S3-compatible server at
+# 127.0.0.1:9000, such as a local development server. Set the endpoint, bucket,
+# prefix and the region that the server expects in request signatures. Give
+# statica the server's access key ID and secret through the standard AWS
+# credential chain, for example AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY.
+s3:
+  bucket: example-websites
+  region: us-east-1
+  endpoint: http://127.0.0.1:9000
+  # Permits the http endpoint. Use an https endpoint, without allow_http, for a
+  # server outside your machine or trusted network.
+  allow_http: true
+  # Sends the bucket name in the path: http://127.0.0.1:9000/example-websites/<key>.
+  path_style: true
+  prefix: demo/
