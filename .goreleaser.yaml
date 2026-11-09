@@ -1,0 +1,86 @@
+# Packaging for statica: binaries, archives, checksums, SBOMs and the
+# multi-architecture container image. The Release workflow runs it on a tag;
+# `make release-snapshot` and the Release dry run job in CI run it without
+# publishing anything. See RELEASING.md.
+version: 2
+project_name: statica
+
+builds:
+  - id: statica
+    main: ./cmd/statica
+    binary: statica
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w
+      - -X main.version={{ .Version }}
+      - -X main.revision={{ .FullCommit }}
+      # The commit date, not the build time, so that two builds of a tag match.
+      - -X main.buildTime={{ .CommitDate }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    # Fixed owner, group and date for every file, instead of those of the
+    # runner's file system, so that two builds of a tag produce the same archives.
+    builds_info: &fixed_info
+      owner: root
+      group: root
+      mtime: "{{ .CommitDate }}"
+    files:
+      - src: LICENSE
+        info: *fixed_info
+      - src: README.md
+        info: *fixed_info
+      - src: CHANGELOG.md
+        info: *fixed_info
+
+checksum:
+  name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
+
+sboms:
+  - artifacts: archive
+
+# The changelog and the release notes come from release-please.
+changelog:
+  disable: true
+
+dockers_v2:
+  - images: [ghcr.io/gtriggiano/statica]
+    # Only the version tag: the Release workflow adds X.Y, X and latest after
+    # the smoke test.
+    tags: ["{{ .Version }}"]
+    platforms: [linux/amd64, linux/arm64]
+    sbom: true
+    labels:
+      org.opencontainers.image.title: statica
+      org.opencontainers.image.description: A web server for static websites stored in S3
+      org.opencontainers.image.source: https://github.com/gtriggiano/statica
+      org.opencontainers.image.documentation: https://gtriggiano.github.io/statica/
+      org.opencontainers.image.licenses: MIT
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.created: "{{ .CommitDate }}"
+    # On the multi-architecture index, which is what ghcr.io shows. A snapshot
+    # builds one image per platform, where buildx rejects index annotations:
+    # there the values are empty, and GoReleaser ignores empty annotations.
+    annotations:
+      "index:org.opencontainers.image.description": "{{ if not .IsSnapshot }}A web server for static websites stored in S3{{ end }}"
+      "index:org.opencontainers.image.source": "{{ if not .IsSnapshot }}https://github.com/gtriggiano/statica{{ end }}"
+      "index:org.opencontainers.image.licenses": "{{ if not .IsSnapshot }}MIT{{ end }}"
+
+# Owner and name of the repository come from the origin remote: these fields
+# do not accept templates.
+release:
+  # The draft created by release-please, or by the candidate job for a release
+  # candidate. The Release workflow publishes it after the smoke test.
+  use_existing_draft: true
+  draft: true
+  prerelease: auto
+  # Keep the notes already written by release-please.
+  mode: keep-existing
+  # Lets a failed job run again on the same draft.
+  replace_existing_artifacts: true
