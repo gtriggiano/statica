@@ -194,7 +194,7 @@ jobs:
             echo "::error::The release $TAG is published: it cannot be built again. Fix the problem with a new version."
             exit 1
           fi
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: refs/tags/${{ needs.prepare.outputs.tag }}
           fetch-depth: 0
@@ -268,7 +268,7 @@ jobs:
       # The version shown by the version selector and the banner.
       DOCS_VERSION: ${{ needs.prepare.outputs.version }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: refs/tags/${{ needs.prepare.outputs.tag }}
           persist-credentials: false
@@ -330,7 +330,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       REPOSITORY: ${{ github.repository }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: refs/tags/${{ needs.prepare.outputs.tag }}
           persist-credentials: false
