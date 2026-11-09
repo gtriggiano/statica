@@ -1,0 +1,26 @@
+# Oh My Claude Code
+.omc/
+
+# Local tooling and build output
+.cache/
+bin/
+coverage.out
+coverage.html
+*.test
+.DS_Store
+
+# Documentation
+docs/node_modules/
+docs/.vitepress/cache/
+docs/.vitepress/dist/
+docs/.vitepress/.temp/
+
+# Local credentials and configuration
+.env
+.env.*
+!.env.example
+.aws/
+config.local.yaml
+
+# Development design notes, kept locally as a writing reference; never committed
+dev-docs/
