@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gtriggiano/statica/internal/cache"
 	"github.com/gtriggiano/statica/internal/config"
 	"github.com/gtriggiano/statica/internal/httpserver"
 	"github.com/gtriggiano/statica/internal/site"
@@ -453,6 +454,118 @@ func TestReadFailuresAfterHeadersAbortAndClose(t *testing.T) {
 type errorReader struct{ err error }
 
 func (r errorReader) Read([]byte) (int, error) { return 0, r.err }
+
+// leavingWriter cancels its request with cause as soon as the client has
+// received after bytes of the body: a nil cause is a client that goes away.
+type leavingWriter struct {
+	*httptest.ResponseRecorder
+	after  int
+	cause  error
+	cancel context.CancelCauseFunc
+}
+
+func (w *leavingWriter) Write(p []byte) (int, error) {
+	n, err := w.ResponseRecorder.Write(p)
+	if w.Body.Len() >= w.after {
+		w.cancel(w.cause)
+	}
+	return n, err
+}
+
+// leave serves a GET of target whose request ends with cause after after
+// body bytes, and reports whether the handler aborted the response.
+func leave(h http.Handler, target string, after int, cause error) (aborted bool) {
+	r := httptest.NewRequest("GET", target, nil)
+	ctx, cancel := context.WithCancelCause(r.Context())
+	defer cancel(nil)
+	w := &leavingWriter{ResponseRecorder: httptest.NewRecorder(), after: after, cause: cause, cancel: cancel}
+	defer func() {
+		if p := recover(); p != nil {
+			if p != http.ErrAbortHandler {
+				panic(p)
+			}
+			aborted = true
+		}
+	}()
+	h.ServeHTTP(w, r.WithContext(ctx))
+	return false
+}
+
+func TestClientLeavingAfterTheWholeBodyIsSuccess(t *testing.T) {
+	const size = transferChunk + 100
+	for _, tc := range []struct {
+		name   string
+		reader io.Reader
+		after  int
+	}{
+		// The origin ends its body before the handler sees the client leave.
+		{"origin end", strings.NewReader(strings.Repeat("x", size)), size},
+		// The client's departure closes the origin body before its end.
+		{"origin body closed", io.MultiReader(strings.NewReader(strings.Repeat("x", size)), errorReader{&storage.Error{Kind: storage.Canceled, Size: -1}}), size},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := &trackedBody{Reader: tc.reader}
+			var o Observation
+			f := fakeReader{get: func(context.Context, string, storage.ReadOptions) (*storage.Object, error) {
+				return &storage.Object{Metadata: storage.Metadata{Size: size}, Body: b}, nil
+			}}
+			h := boundary(t, testConfig(t), f, WithObserver(func(v Observation) { o = v }))
+			if leave(h, "http://example.org/file", tc.after, nil) {
+				t.Fatalf("aborted a complete response: %+v", o)
+			}
+			if o.Status != 200 || o.Outcome != OutcomeSuccess || o.TerminationReason != ReasonNone || o.Bytes != size || !b.closed.Load() {
+				t.Fatalf("observation %+v closed %t", o, b.closed.Load())
+			}
+		})
+	}
+
+	t.Run("memory", func(t *testing.T) {
+		cfg := cachedConfig(t, nil)
+		origin := newMemOrigin()
+		c, _ := newCache(t, cfg, origin, &testClock{t: time.Now()})
+		var o Observation
+		h := boundary(t, cfg, origin, WithCache(c), WithObserver(func(v Observation) { o = v }))
+		if w := serve(h, "GET", "http://example.org/file.txt", nil); w.status != 200 {
+			t.Fatalf("warm-up status %d", w.status)
+		}
+		if leave(h, "http://example.org/file.txt", len("hello world"), nil) {
+			t.Fatalf("aborted a complete response: %+v", o)
+		}
+		if o.Status != 200 || o.Outcome != OutcomeSuccess || o.TerminationReason != ReasonNone || o.CacheOutcome != cache.OutcomeHit || o.CacheBytes != 11 {
+			t.Fatalf("observation %+v", o)
+		}
+	})
+
+	// A client that leaves before the last byte still cuts the response.
+	t.Run("before the end", func(t *testing.T) {
+		var o Observation
+		f := fakeReader{get: func(context.Context, string, storage.ReadOptions) (*storage.Object, error) {
+			return object(strings.Repeat("x", size), storage.Metadata{Size: size}), nil
+		}}
+		h := boundary(t, testConfig(t), f, WithObserver(func(v Observation) { o = v }))
+		if !leave(h, "http://example.org/file", transferChunk, nil) {
+			t.Fatalf("did not abort a cut response: %+v", o)
+		}
+		if o.Status != 200 || o.Outcome != OutcomeIncomplete || o.TerminationReason != ReasonDisconnect || o.Bytes != transferChunk {
+			t.Fatalf("observation %+v", o)
+		}
+	})
+
+	// A shutdown still cuts a streamed body whose origin end is unconfirmed.
+	t.Run("shutdown after the end", func(t *testing.T) {
+		var o Observation
+		f := fakeReader{get: func(context.Context, string, storage.ReadOptions) (*storage.Object, error) {
+			return object(strings.Repeat("x", size), storage.Metadata{Size: size}), nil
+		}}
+		h := boundary(t, testConfig(t), f, WithObserver(func(v Observation) { o = v }))
+		if !leave(h, "http://example.org/file", size, httpserver.ErrShutdown) {
+			t.Fatalf("did not abort on shutdown: %+v", o)
+		}
+		if o.Status != 200 || o.Outcome != OutcomeIncomplete || o.TerminationReason != ReasonShutdown || o.Bytes != size {
+			t.Fatalf("observation %+v", o)
+		}
+	})
+}
 
 func TestRepeatedFieldsAndIfRangeDateStrength(t *testing.T) {
 	lm := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)

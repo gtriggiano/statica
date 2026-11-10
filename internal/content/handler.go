@@ -699,7 +699,11 @@ func (h *handler) transfer(ctx context.Context, w http.ResponseWriter, body io.R
 	var read int64
 	empty := 0
 	for {
-		if err := ctx.Err(); err != nil {
+		// Once every announced byte is written, the client has the whole
+		// response and the last read only confirms the end of the origin
+		// body: a client that leaves meanwhile does not make it incomplete.
+		complete := length >= 0 && read == length
+		if err := ctx.Err(); err != nil && !(complete && clientGone(ctx)) {
 			return err
 		}
 		n, err := body.Read(buffer)
@@ -723,6 +727,11 @@ func (h *handler) transfer(ctx context.Context, w http.ResponseWriter, body io.R
 		}
 		if err != nil {
 			if !errors.Is(err, io.EOF) {
+				// The client's departure closes the origin body, which fails
+				// that last read as canceled. With n > 0 it returned above.
+				if complete && clientGone(ctx) && (storage.IsKind(err, storage.Canceled) || errors.Is(err, context.Canceled)) {
+					return nil
+				}
 				return err
 			}
 			if length >= 0 && read != length {
@@ -733,19 +742,27 @@ func (h *handler) transfer(ctx context.Context, w http.ResponseWriter, body io.R
 	}
 }
 
+// clientGone reports whether ctx ended because its client went away:
+// canceled, and not by a shutdown. A deadline ends it as DeadlineExceeded.
+func clientGone(ctx context.Context) bool {
+	return errors.Is(ctx.Err(), context.Canceled) && !errors.Is(context.Cause(ctx), httpserver.ErrShutdown)
+}
+
 // transferResident writes bytes already in memory in place, in the chunks
-// transfer would write them, with the same context checks, write deadlines,
-// accounting and errors, but without a buffer or a copy.
+// transfer would write them, with the same write deadlines, accounting and
+// errors, but without a buffer or a copy. Once the last byte is written it
+// returns at once, whatever ends ctx then: unlike transfer, no end of an
+// origin body remains to confirm.
 func (h *handler) transferResident(ctx context.Context, w http.ResponseWriter, data []byte, length int64, total time.Time, o *Observation) error {
 	if int64(len(data)) != length {
 		return errLength
 	}
 	for {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
 		if len(data) == 0 {
 			return nil
+		}
+		if err := ctx.Err(); err != nil {
+			return err
 		}
 		n := min(len(data), transferChunk)
 		if err := h.write(w, data[:n], total, o); err != nil {

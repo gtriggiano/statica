@@ -274,7 +274,7 @@ Admitted requests only.
 
 | Value | Meaning |
 | --- | --- |
-| `success` | The response completed, whatever its status, including redirects and 404 for a missing object. |
+| `success` | The response completed, whatever its status, including redirects and 404 for a missing object. A client that goes away after statica has written every byte of a body of known length does not make the response incomplete. |
 | `origin_failure` | The request failed before the response headers: the origin failed, a deadline expired, or a shutdown began (503). It includes a denial masked as 404. `termination_reason` tells which. |
 | `incomplete` | The response did not complete: it was cut after the headers, or the client went away. A client that goes away before the headers receives nothing and is recorded with `status=0`. |
 

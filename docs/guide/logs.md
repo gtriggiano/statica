@@ -88,7 +88,7 @@ The [field values](../reference/logs.md#field-values) section of the reference l
 
 ### Incomplete transfers
 
-A response that was cut after its headers keeps its status and has `outcome=incomplete`, its partial `bytes_written` and a `termination_reason`:
+A response that was cut after its headers keeps its status and has `outcome=incomplete`, the `bytes_written` it sent and a `termination_reason`:
 
 ```text
 ts=2026-11-08T00:17:01.874Z level=warn event=http_request request_id=ef7c683798fe57dc2d80ac50706722f6 request_id_source=generated host=www.example.com method=GET path=/downloads/archive.zip status=200 outcome=incomplete resolution=ordinary cache=bypass cache_reason=too_large origin_key=downloads/archive.zip duration_ms=4525.686 ttfb_ms=188.623 bytes_written=7106878 termination_reason=shutdown client_ip=203.0.113.7 peer_ip=203.0.113.7 client_ip_source=peer

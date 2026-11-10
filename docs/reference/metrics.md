@@ -92,7 +92,7 @@ Admitted requests, counted once when their response ends. Admitted means not rej
 | `host` | See [`host`](#host). |
 | `method` | `GET`, `HEAD`, `OPTIONS` (CORS preflights), or `OTHER`. Other methods are rejected with 405, so `OTHER` does not occur in practice. |
 | `status` | The status code sent, such as `200`, `304` or `404`. `0` when the request ended before a status was sent. |
-| `outcome` | `success`: the response completed, whatever its status. `origin_failure`: the request failed before the response headers, because the origin failed, a deadline expired or a shutdown began (503); this includes a denial masked as 404. `incomplete`: the response did not complete, including a client that went away before the response headers (`status="0"`); see [`statica_stream_failures_total`](#statica-stream-failures-total). |
+| `outcome` | `success`, `origin_failure` or `incomplete`: the [`outcome`](./logs.md#outcome) of the request's access log event. [`statica_stream_failures_total`](#statica-stream-failures-total) counts the `incomplete` ones by reason. |
 
 ### `statica_http_request_duration_seconds`
 

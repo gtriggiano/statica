@@ -104,9 +104,9 @@ A client that disconnects receives nothing and is not an origin failure: the req
 
 ### After the headers
 
-The status is already on the wire and cannot change, and no error page is ever appended to a started body. When a transfer fails, statica aborts it: an HTTP/1.1 connection is closed, and an HTTP/2 stream is reset while the connection keeps serving its other streams. The client receives a truncated body: fewer bytes than `Content-Length` announced, or a chunked body without its end.
+The status is already on the wire and cannot change, and no error page is ever appended to a started body. When a transfer fails, statica aborts it: an HTTP/1.1 connection is closed, and an HTTP/2 stream is reset while the connection keeps serving its other streams. The client receives a truncated body: fewer bytes than `Content-Length` announced, or a chunked body without its end. A failure after the last announced byte can no longer truncate the body: a checksum mismatch found at the end of the origin body, or a deadline or shutdown that interrupts the read of that end. An HTTP/1.1 client then has the whole body, and an HTTP/2 client sees the stream reset before its end.
 
-The request is logged with `outcome=incomplete`, its partial `bytes_written` and a [`termination_reason`](../reference/logs.md#termination-reason), and counted in `statica_http_requests_total{outcome="incomplete"}` and `statica_stream_failures_total`, labeled by reason:
+The request is logged with `outcome=incomplete`, the `bytes_written` it sent and a [`termination_reason`](../reference/logs.md#termination-reason), and counted in `statica_http_requests_total{outcome="incomplete"}` and `statica_stream_failures_total`, labeled by reason:
 
 | `termination_reason` | Cause | Log level |
 | --- | --- | --- |
