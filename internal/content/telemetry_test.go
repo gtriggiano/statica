@@ -284,6 +284,8 @@ func TestCacheTelemetryIsComplete(t *testing.T) {
 		{name: "disabled rule", do: get("/nocache.txt", 200), counts: map[string]float64{requests("bypass"): 1, bypasses(cache.ReasonDisabled): 1}},
 		{name: "large object streams", do: get("/big.bin", 200),
 			counts: map[string]float64{requests("bypass"): 1, bypasses(cache.ReasonTooLarge): 1, fills(cache.FillStreamed): 1}},
+		{name: "large object range counts bypass once", do: get("/big.bin", 206, "Range", "bytes=0-3"),
+			counts: map[string]float64{requests("bypass"): 1, bypasses(cache.ReasonTooLarge): 1, fills(cache.FillStreamed): 1}},
 		{name: "forced revalidation expires nothing", do: get("/file.txt", 200, "Cache-Control", "no-cache"), counts: refreshed},
 		{name: "expired entry revalidates", do: then(advance(expire), get("/file.txt", 200)), counts: with(refreshed, expired(cache.KindBody), 1)},
 		{name: "changed object replaces", do: then(setObject("second", `"f2"`), advance(expire), get("/file.txt", 200)),

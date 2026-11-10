@@ -154,6 +154,7 @@ func WithCache(c *cache.Cache) HandlerOption {
 }
 
 type handler struct {
+	origin                        storage.Reader
 	reader                        storage.Reader
 	resolver                      *site.Resolver
 	memory                        *cache.Cache
@@ -178,7 +179,7 @@ func NewHandler(cfg *config.Config, reader storage.Reader, options ...HandlerOpt
 	if cfg.Server.ResponseHeaderTimeout <= 0 || cfg.Server.WriteIdleTimeout <= 0 || cfg.Server.RequestTimeout < 0 {
 		return nil, fmt.Errorf("content requires valid timeout budgets")
 	}
-	h := &handler{reader: reader, cache: cfg.Cache, cacheControl: cfg.CacheControl,
+	h := &handler{origin: reader, reader: reader, cache: cfg.Cache, cacheControl: cfg.CacheControl,
 		features: cfg.S3.Features, accessDenied: cfg.Errors.AccessDenied,
 		preparation: cfg.Server.ResponseHeaderTimeout, writeIdle: cfg.Server.WriteIdleTimeout, total: cfg.Server.RequestTimeout}
 	h.cache.Rules = append([]config.CacheRule(nil), cfg.Cache.Rules...)
@@ -405,7 +406,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				status = http.StatusPartialContent
 			} else if valid {
 				body.release()
-				object, rangeErr := h.reader.Get(ctx, selection.Key, storage.ReadOptions{Range: br.request(), IfMatch: selection.Metadata.ETag})
+				object, rangeErr := h.origin.Get(ctx, selection.Key, storage.ReadOptions{Range: br.request(), IfMatch: selection.Metadata.ETag})
 				if rangeErr != nil {
 					if object != nil && object.Body != nil {
 						_ = object.Body.Close()
@@ -512,9 +513,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				data = data[span.start : span.end+1]
 			}
 			err = h.transferResident(ctx, w, data, selection.Metadata.Size, totalDeadline, &observation)
-			// The lookup that supplied the body: the selection's, or the
-			// guarded range read that followed a streamed selection.
-			if record, _ := cache.LastLookup(ctx, selection.Key); record.Outcome == cache.OutcomeHit || record.Outcome == cache.OutcomeRevalidated || record.Outcome == cache.OutcomeStale {
+			if observation.CacheOutcome == cache.OutcomeHit || observation.CacheOutcome == cache.OutcomeRevalidated || observation.CacheOutcome == cache.OutcomeStale {
 				observation.CacheBytes = observation.Bytes
 			}
 		} else {

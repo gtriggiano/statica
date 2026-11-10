@@ -305,7 +305,7 @@ The outcome of the memory cache lookup that decided the response. Absent with `c
 
 ### `cache_reason`
 
-Only with `cache=bypass`: `disabled`, `request_no_store`, `shutdown`, `fills_full`, `waiters_full`, `unknown_size`, `too_large`, `uncacheable` or `fill_budget`. The [metrics reference](./metrics.md#statica-cache-admissions-total) describes each one. The `cache` fields describe the lookup that selected the object, so a range read from the origin that follows it is not reflected: the bypass reason `range` appears only in the metric.
+Only with `cache=bypass`: `disabled`, `request_no_store`, `shutdown`, `fills_full`, `waiters_full`, `unknown_size`, `too_large`, `uncacheable` or `fill_budget`. The [metrics reference](./metrics.md#statica-cache-admissions-total) describes each one.
 
 ### `error_class`
 

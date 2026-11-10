@@ -237,7 +237,7 @@ Requests waiting on a shared fill.
 **Type:** counter\
 **Labels:** `result`, `reason`
 
-Outcomes of storing entries, and lookups that bypassed the cache. All 17 series exist from startup.
+Outcomes of storing entries, and lookups that bypassed the cache. All 16 series exist from startup.
 
 Each attempt to store an entry (body, metadata or negative) or to refresh one in place counts once under its result, with the reason `none`:
 
@@ -251,7 +251,7 @@ Each attempt to store an entry (body, metadata or negative) or to refresh one in
 | `invalid` | Not stored: the entry was malformed. |
 | `conflict` | Not stored: the key's entry changed meanwhile. |
 
-Each lookup that bypassed the cache counts once under the result `bypass`, with one of these reasons. A request whose resolution makes several lookups can count several times. The access log's [`cache_reason`](./logs.md#cache-reason) uses the same values, except `range`, which only this metric shows.
+Each lookup that bypassed the cache counts once under the result `bypass`, with one of these reasons. A request whose resolution makes several lookups can count several times. The access log's [`cache_reason`](./logs.md#cache-reason) uses the same values.
 
 | `reason` | Meaning |
 | --- | --- |
@@ -264,7 +264,6 @@ Each lookup that bypassed the cache counts once under the result `bypass`, with 
 | `too_large` | A fill streamed the object: it is larger than `cache.max_object_bytes`. |
 | `uncacheable` | The origin's metadata does not allow storing the object (`no-store`, `private` or malformed cache metadata). |
 | `fill_budget` | A fill streamed the object: other fills hold `cache.max_fill_bytes`. |
-| `range` | A range or `If-Match` read found no fresh body in memory to cut from. |
 
 ### `statica_cache_evictions_total`
 

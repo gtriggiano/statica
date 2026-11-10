@@ -92,12 +92,21 @@ func TestExpirationsByKind(t *testing.T) {
 	// The first lookup to find the entry past its lifetime counts it, whatever
 	// the lookup; later lookups of the same version do not.
 	h.clock.Advance(2 * time.Minute)
-	l, err := h.c.Range(context.Background(), "site/a", httpcache.Request{}, storage.ReadOptions{Range: "bytes=0-1"})
-	if err != nil || l.Outcome != OutcomeBypass || l.Reason != ReasonRange {
-		t.Fatalf("Range of an expired body = %s/%s, %v", l.Outcome, l.Reason, err)
+	h.origin.setGet(func(context.Context, string, int, storage.ReadOptions) (*storage.Object, error) {
+		return nil, originErr(storage.Unavailable)
+	})
+	l, err := h.get("site/a", httpcache.Request{})
+	if !storage.IsKind(err, storage.Unavailable) || l.Outcome != OutcomeMiss {
+		t.Fatalf("expired body under outage = %s, %v", l.Outcome, err)
 	}
 	l.Release()
 	want(1, 0, 0)
+	h.origin.setGet(func(ctx context.Context, _ string, _ int, opts storage.ReadOptions) (*storage.Object, error) {
+		if opts.IfNoneMatch == `"v1"` {
+			return nil, notModifiedErr(objMeta(`"v1"`, "max-age=60", 5))
+		}
+		return h.origin.object(ctx, objMeta(`"v1"`, "max-age=60", 5), "hello"), nil
+	})
 	l = h.mustGet("site/a", httpcache.Request{NoCache: true}, OutcomeRevalidated)
 	l.Release()
 	want(1, 0, 0)
@@ -259,9 +268,6 @@ func TestOriginPurpose(t *testing.T) {
 			return h.c.Get(context.Background(), "site/a", httpcache.Request{NoStore: true})
 		}, []string{"get request"}},
 		{"disabled policy", func() (*Lookup, error) { return h.c.Get(health, "site/private/a", httpcache.Request{}) }, []string{"get health"}},
-		{"range", func() (*Lookup, error) {
-			return h.c.Range(context.Background(), "site/cold", httpcache.Request{}, storage.ReadOptions{Range: "bytes=0-1"})
-		}, []string{"range request"}},
 		{"head", func() (*Lookup, error) { return h.c.Head(context.Background(), "site/h", httpcache.Request{}) }, []string{"head request"}},
 		{"head bypass", func() (*Lookup, error) { return h.c.Head(health, "site/h", httpcache.Request{NoStore: true}) }, []string{"head health"}},
 	} {

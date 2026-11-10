@@ -197,7 +197,6 @@ sum by (reason) (rate(statica_cache_admissions_total{result="bypass"}[5m]))
 | `waiters_full` | One fill already has `max_waiters_per_key` requests. | `max_waiters_per_key`. |
 | `disabled`, `request_no_store` | A rule disables the cache, or the request carries `Cache-Control: no-store`. | Intended behavior. |
 | `shutdown` | statica is shutting down and starts no new fills. | Expected during a shutdown. |
-| `range` | A range or `If-Match` request found no fresh body in memory and read the origin. | Expected for objects that stream. |
 
 ### Hit ratios
 

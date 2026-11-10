@@ -276,7 +276,6 @@ A read that bypasses the cache goes to the origin within the request's own conte
 - `request_no_store`: the request carries `Cache-Control: no-store`;
 - `fills_full` and `waiters_full`: a fill limit is reached;
 - `unknown_size`, `too_large`, `uncacheable` and `fill_budget`: a shared fill streamed the object instead of storing it;
-- `range`: a guarded range read, after the object streamed, found no fresh body in memory to cut from. Only the metric counts it: the access log keeps the reason of the lookup that selected the object, such as `too_large`;
 - `shutdown`: the process is shutting down and starts no new fills.
 
 The other outcomes are `hit` (a fresh body served from memory), `metadata_hit`, `negative_hit`, `miss` (an origin read for a missing or unusable entry), `revalidated` and `stale`. With `cache.enabled: false` there is no memory cache: the access log has no `cache` field, and `statica_cache_enabled` is 0. The [metrics reference](../reference/metrics.md#memory-cache-per-request) describes every `statica_cache_*` family, and [Metrics to watch](../guide/cache-tuning.md#metrics-to-watch) how to read them.

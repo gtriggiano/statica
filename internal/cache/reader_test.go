@@ -2,7 +2,6 @@ package cache
 
 import (
 	"context"
-	"errors"
 	"io"
 	"strconv"
 	"strings"
@@ -74,15 +73,9 @@ func TestReaderPresentsCurrentAge(t *testing.T) {
 		if obj.Metadata.CacheControl != "max-age=300" {
 			t.Fatalf("a hit renewed the lifetime: %q", obj.Metadata.CacheControl)
 		}
-		head, err := r.Head(context.Background(), "site/a")
-		if err != nil || head.RawAge != obj.Metadata.RawAge || head.Age != obj.Metadata.Age {
+		if head, err := r.Head(context.Background(), "site/a"); err != nil || head.RawAge != obj.Metadata.RawAge || head.Age != obj.Metadata.Age {
 			t.Fatalf("HEAD presented %+v, %v", head, err)
 		}
-	}
-	if obj, err := r.Get(context.Background(), "site/a", storage.ReadOptions{Range: "bytes=0-1"}); err != nil || obj.Metadata.RawAge != "151" {
-		t.Fatalf("range presented %+v, %v", obj, err)
-	} else {
-		read(t, obj)
 	}
 	h.settle()
 }
@@ -147,109 +140,17 @@ func TestReaderNegativeHitConfirmsAbsence(t *testing.T) {
 	h.settle()
 }
 
-func TestReaderRangeFromMemory(t *testing.T) {
+func TestReaderRejectsReadOptions(t *testing.T) {
 	h := newHarness(t)
 	r := NewReader(h.c)
-	h.prime("site/f", objMeta(`"v"`, "max-age=60", 6), "abcdef")
-	for _, tc := range []struct {
-		opts         storage.ReadOptions
-		body, cr     string
-		kind         storage.Kind
-		invalidRange int64
-	}{
-		{opts: storage.ReadOptions{Range: "bytes=1-3", IfMatch: `"v"`}, body: "bcd", cr: "bytes 1-3/6"},
-		{opts: storage.ReadOptions{Range: "bytes=-2"}, body: "ef", cr: "bytes 4-5/6"},
-		{opts: storage.ReadOptions{Range: "bytes=-10"}, body: "abcdef", cr: "bytes 0-5/6"},
-		{opts: storage.ReadOptions{Range: "bytes=4-"}, body: "ef", cr: "bytes 4-5/6"},
-		{opts: storage.ReadOptions{Range: "bytes=2-100"}, body: "cdef", cr: "bytes 2-5/6"},
-		{opts: storage.ReadOptions{Range: "bytes=5-5"}, body: "f", cr: "bytes 5-5/6"},
-		{opts: storage.ReadOptions{IfMatch: `"v"`}, body: "abcdef"},
-		{opts: storage.ReadOptions{Range: "bytes=0-0", IfMatch: "*"}, body: "a", cr: "bytes 0-0/6"},
-		{opts: storage.ReadOptions{Range: "bytes=6-"}, kind: storage.InvalidRange, invalidRange: 6},
-		{opts: storage.ReadOptions{Range: "bytes=-0"}, kind: storage.InvalidRange, invalidRange: 6},
-		{opts: storage.ReadOptions{Range: "bytes=1-3", IfMatch: `"other"`}, kind: storage.Precondition},
-		{opts: storage.ReadOptions{Range: "bytes=1-3", IfMatch: `W/"v"`}, kind: storage.Precondition},
-		{opts: storage.ReadOptions{Range: "bytes=9-", IfMatch: `"other"`}, kind: storage.Precondition},
+	for _, opts := range []storage.ReadOptions{
+		{Range: "bytes=0-1"},
+		{IfMatch: `"v"`},
+		{IfNoneMatch: `"v"`},
 	} {
-		ctx := WithRequest(context.Background(), httpcache.Request{})
-		obj, err := r.Get(ctx, "site/f", tc.opts)
-		if tc.kind != "" {
-			var e *storage.Error
-			if obj != nil || !errors.As(err, &e) || e.Kind != tc.kind || tc.kind == storage.InvalidRange && e.Size != tc.invalidRange {
-				t.Fatalf("%+v: got %v, %v", tc.opts, obj, err)
-			}
-			continue
+		if obj, err := r.Get(context.Background(), "site/a", opts); obj != nil || !storage.IsKind(err, storage.Unsupported) || h.origin.getCount() != 0 {
+			t.Fatalf("%+v: got %v, %v", opts, obj, err)
 		}
-		if err != nil {
-			t.Fatalf("%+v: %v", tc.opts, err)
-		}
-		if _, ok := obj.Body.(*Body); !ok || obj.Metadata.Size != int64(len(tc.body)) || obj.Metadata.ContentRange != tc.cr || obj.Metadata.ETag != `"v"` || read(t, obj) != tc.body {
-			t.Fatalf("%+v: %T %+v", tc.opts, obj.Body, obj.Metadata)
-		}
-		if rec, _ := LastLookup(ctx, "site/f"); rec.Outcome != OutcomeHit {
-			t.Fatalf("%+v recorded %+v", tc.opts, rec)
-		}
-	}
-	if n := h.origin.getCount(); n != 1 {
-		t.Fatalf("ranges reached the origin: %d reads", n)
-	}
-	h.settle()
-}
-
-func TestReaderRangeWithoutFreshBodyReadsOrigin(t *testing.T) {
-	h := newHarness(t)
-	r := NewReader(h.c)
-	h.prime("site/f", objMeta(`"v"`, "max-age=60", 6), "abcdef")
-	var seen []storage.ReadOptions
-	var mu sync.Mutex
-	h.origin.setGet(func(ctx context.Context, _ string, _ int, opts storage.ReadOptions) (*storage.Object, error) {
-		mu.Lock()
-		seen = append(seen, opts)
-		mu.Unlock()
-		if opts.IfMatch == `"gone"` {
-			return nil, originErr(storage.Precondition)
-		}
-		return h.origin.object(ctx, storage.Metadata{Size: 2, ETag: `"v"`, ContentRange: "bytes 0-1/6"}, "ab"), nil
-	})
-	// A range the decorator does not parse is the origin's to interpret.
-	ctx := WithRequest(context.Background(), httpcache.Request{})
-	obj, err := r.Get(ctx, "site/f", storage.ReadOptions{Range: "bytes=0-1,3-4", IfMatch: `"v"`})
-	if err != nil || read(t, obj) != "ab" {
-		t.Fatalf("unparsed range: %v", err)
-	}
-	if rec, _ := LastLookup(ctx, ""); rec.Outcome != OutcomeBypass || rec.Reason != ReasonRange {
-		t.Fatalf("recorded %+v", rec)
-	}
-	// Without an entry, or once it expired, ranges read the origin directly
-	// and store nothing.
-	for _, key := range []string{"site/cold", "site/f"} {
-		if key == "site/f" {
-			h.clock.Advance(2 * time.Minute)
-		}
-		obj, err := r.Get(ctx, key, storage.ReadOptions{Range: "bytes=0-1", IfMatch: `"v"`})
-		if err != nil || obj.Metadata.ContentRange != "bytes 0-1/6" || read(t, obj) != "ab" {
-			t.Fatalf("%s: %v", key, err)
-		}
-		if _, _, ok := h.store.Peek("site/cold"); ok {
-			t.Fatal("a partial read was stored")
-		}
-	}
-	if _, err := r.Get(ctx, "site/cold", storage.ReadOptions{Range: "bytes=0-1", IfMatch: `"gone"`}); !storage.IsKind(err, storage.Precondition) {
-		t.Fatalf("origin precondition not passed through: %v", err)
-	}
-	mu.Lock()
-	defer mu.Unlock()
-	if len(seen) != 4 || seen[0].Range != "bytes=0-1,3-4" || seen[1].IfMatch != `"v"` {
-		t.Fatalf("origin saw %+v", seen)
-	}
-	h.settle()
-}
-
-func TestReaderRejectsIfNoneMatch(t *testing.T) {
-	h := newHarness(t)
-	obj, err := NewReader(h.c).Get(context.Background(), "site/a", storage.ReadOptions{IfNoneMatch: `"v"`})
-	if obj != nil || !storage.IsKind(err, storage.Unsupported) || h.origin.getCount() != 0 {
-		t.Fatalf("got %v, %v", obj, err)
 	}
 }
 
@@ -369,15 +270,9 @@ func TestBodyBytes(t *testing.T) {
 	if _, err := b.Read(make([]byte, 4)); err != nil || string(b.Bytes()) != "abcdef" {
 		t.Fatalf("Bytes after a read: %q, %v", b.Bytes(), err)
 	}
-	ranged, err := r.Get(context.Background(), "site/a", storage.ReadOptions{Range: "bytes=1-2"})
-	if err != nil || string(ranged.Body.(*Body).Bytes()) != "bc" {
-		t.Fatalf("range Bytes: %v", err)
-	}
-	for _, o := range []*storage.Object{obj, ranged} {
-		_ = o.Body.Close()
-		if o.Body.(*Body).Bytes() != nil {
-			t.Fatal("Bytes after Close")
-		}
+	_ = obj.Body.Close()
+	if b.Bytes() != nil {
+		t.Fatal("Bytes after Close")
 	}
 	h.settle()
 }

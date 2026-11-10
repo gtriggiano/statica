@@ -347,7 +347,7 @@ func TestCacheCollectorReflectsStats(t *testing.T) {
 			t.Errorf("missing initial admissions result %s", r)
 		}
 	}
-	for _, r := range []string{"disabled", "request_no_store", "shutdown", "fills_full", "waiters_full", "unknown_size", "too_large", "uncacheable", "fill_budget", "range"} {
+	for _, r := range []string{"disabled", "request_no_store", "shutdown", "fills_full", "waiters_full", "unknown_size", "too_large", "uncacheable", "fill_budget"} {
 		if v, ok := got[admissions("bypass", r)]; !ok || v != 0 {
 			t.Errorf("missing initial bypass reason %s", r)
 		}
