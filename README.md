@@ -39,7 +39,7 @@ Check that statica can read `index.html`, then start the server with the contain
 
 <!-- x-release-please-start-version -->
 ```sh
-IMAGE=ghcr.io/gtriggiano/statica:0.0.0
+IMAGE=ghcr.io/gtriggiano/statica:0.1.0
 ```
 <!-- x-release-please-end -->
 

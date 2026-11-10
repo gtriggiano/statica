@@ -6,7 +6,7 @@ The image of the release that this documentation describes:
 
 <!-- x-release-please-start-version -->
 ```text
-ghcr.io/gtriggiano/statica:0.0.0
+ghcr.io/gtriggiano/statica:0.1.0
 ```
 <!-- x-release-please-end -->
 
@@ -64,7 +64,7 @@ Each image index has a provenance attestation, signed by GitHub, that ties it to
 
 <!-- x-release-please-start-version -->
 ```sh
-gh attestation verify oci://ghcr.io/gtriggiano/statica:0.0.0 --repo gtriggiano/statica \
+gh attestation verify oci://ghcr.io/gtriggiano/statica:0.1.0 --repo gtriggiano/statica \
   --signer-workflow gtriggiano/statica/.github/workflows/release.yml
 ```
 <!-- x-release-please-end -->

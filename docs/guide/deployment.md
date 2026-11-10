@@ -76,7 +76,7 @@ spec:
   terminationGracePeriodSeconds: 45
   containers:
     - name: statica
-      image: ghcr.io/gtriggiano/statica:0.0.0
+      image: ghcr.io/gtriggiano/statica:0.1.0
       securityContext:
         runAsNonRoot: true
         readOnlyRootFilesystem: true
