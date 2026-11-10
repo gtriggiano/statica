@@ -257,7 +257,7 @@ A served variant carries `Content-Encoding: br` or `gzip`, and the access event'
 
 - **Level and switches.** `observability.log_level` above `info` drops successful requests' access events and `info` lifecycle events, and `observability.access_log: false` drops all access events.
 - **Drops.** A `log_events_dropped` event and the metric `statica_log_events_dropped_total` count lines that statica could not write ([dropped events](./logs.md#dropped-events)).
-- **Abrupt ends.** A second stop signal gives the logs 250 ms. SIGKILL, SIGHUP and a closed standard output end the process without flushing them.
+- **Abrupt ends.** A second stop signal gives the logs 250 ms. SIGKILL and SIGHUP end the process without flushing them, and a closed standard output drops every line written while no reader is attached.
 - **Never logged.** Requests that Go's HTTP server refuses before statica sees them, such as headers larger than `server.max_header_bytes`, and requests to the admin listener.
 
 ## Related pages

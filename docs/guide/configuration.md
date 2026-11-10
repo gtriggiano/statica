@@ -152,7 +152,7 @@ statica reads its configuration once, when it starts. To apply a change, restart
 ## Pitfalls
 
 - **An `admin.origin_health` block without `enabled: true` does nothing**, apart from choosing the key that `config check-origin` reads. It is still validated, so an invalid value in it is still an error ([Health checks and readiness](./health-checks.md)).
-- **Validation does not resolve names.** `config validate` rejects listen addresses that overlap by their text, such as `localhost:8080` and `127.0.0.1:8080`, but two different names that resolve to the same address pass, then the second listener cannot bind and `statica serve` exits with status 1 ([`config validate` passes but `serve` fails](./troubleshooting.md#config-validate-passes-but-serve-fails)).
+- **Validation does not resolve names.** `config validate` rejects listen addresses with equal hosts, a host on every interface, or two loopback hosts such as `localhost:8080` and `127.0.0.1:8080` on the same port, but two different DNS names that resolve to the same address pass, then the second listener cannot bind and `statica serve` exits with status 1 ([`config validate` passes but `serve` fails](./troubleshooting.md#config-validate-passes-but-serve-fails)).
 
 ## Related pages
 

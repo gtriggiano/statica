@@ -8,7 +8,7 @@ Send visitors from old URLs to new ones, within the site or to another HTTPS ori
 
 ## How rules are applied
 
-The [`redirects`](../reference/configuration.md#redirects) rules are evaluated in order, after it has checked the host, the method and the request target, and before it reads the memory cache or the origin. The first rule that matches answers with its status, a `Location` header and `Cache-Control: no-store`. A rule therefore also redirects a path that exists as an object ([redirect rules](../architecture/request-flow.md#redirect-rules)).
+The [`redirects`](../reference/configuration.md#redirects) rules are evaluated in order, after statica has checked the host, the method and the request target, and before it reads the memory cache or the origin. The first rule that matches answers with its status, a `Location` header and `Cache-Control: no-store`. A rule therefore also redirects a path that exists as an object ([redirect rules](../architecture/request-flow.md#redirect-rules)).
 
 ## Redirect a single path
 

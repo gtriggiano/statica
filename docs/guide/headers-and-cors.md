@@ -51,10 +51,11 @@ Names that statica sets itself, or that another setting controls, are rejected:
 | `X-Request-ID`, `X-Content-Type-Options`, `Location`, `Vary`, `Date`, `Age`, `Accept-Ranges` | Set by statica. |
 | Hop-by-hop headers, `Host`, `Authorization`, `WWW-Authenticate`, `Cookie`, `Set-Cookie` | Cannot be set. |
 
-The error does not name the header, so check the names in `headers.set` against this table when you see it:
+A reserved name is reported with its field path, while a syntactically invalid name is reported on `headers.set` without repeating the name:
 
 ```text
-statica: headers.set (line 6, column 5): invalid or reserved response header name
+statica: headers.set.Cache-Control (line 6, column 5): reserved response header name
+statica: headers.set (line 6, column 5): invalid response header name
 ```
 
 ## Allow cross-origin reads
