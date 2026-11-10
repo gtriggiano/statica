@@ -70,6 +70,10 @@ statica normalizes some values while it validates them. `config print` shows the
 | `server.client_ip_header`, `server.request_id_header`, names in `headers.set` | Canonical header case: `x-real-ip` becomes `X-Real-Ip`. |
 | `server.tls.cert_file`, `server.tls.key_file` | A relative path is resolved against the directory of the configuration file. |
 
+### Ports
+
+A port in `server.listen`, `admin.listen`, `s3.endpoint` or `cors.allowed_origins` is a decimal integer from 1 to 65535, written in ASCII digits without a sign or a leading zero: `8080` is accepted, `08080` and `+8080` are rejected.
+
 ### Error messages
 
 An invalid configuration stops the command before anything starts, with exit status 2. The message names the field and, when known, its position in the file:
@@ -105,7 +109,7 @@ The public listener. Each field has its own default. [Timeouts and long download
 **Type:** string\
 **Default:** `127.0.0.1:8080`
 
-Address of the public listener, as `host:port`. The host is a hostname, an IP address (IPv6 in brackets: `[::1]:8080`) or empty for every interface (`:8080`). The port is 1–65535. Must not share an address and port with [`admin.listen`](#admin-listen). The listener serves HTTP/1.1, or HTTPS with HTTP/2 and HTTP/1.1 when `server.tls` is present.
+Address of the public listener, as `host:port`. The host is a hostname, an IP address (IPv6 in brackets: `[::1]:8080`) or empty for every interface (`:8080`). The port follows the [port syntax](#ports). Must not share an address and port with [`admin.listen`](#admin-listen). The listener serves HTTP/1.1, or HTTPS with HTTP/2 and HTTP/1.1 when `server.tls` is present.
 
 ### `server.tls`
 
@@ -381,7 +385,7 @@ Only leading and trailing slashes are removed. Empty interior segments (`docs//c
 **Type:** string\
 **Default:** none — the AWS S3 endpoint of the region.
 
-URL of an S3-compatible service: `http` or `https`, a host and an optional port, and nothing else (no credentials, query, fragment, or path other than `/`). An `http` endpoint requires `s3.allow_http: true`. Endpoint overrides from the AWS environment and shared configuration are ignored: only this field selects the endpoint.
+URL of an S3-compatible service: `http` or `https`, a host and an optional [port](#ports), and nothing else (no credentials, query, fragment, or path other than `/`). An `http` endpoint requires `s3.allow_http: true`. Endpoint overrides from the AWS environment and shared configuration are ignored: only this field selects the endpoint.
 
 ### `s3.path_style`
 
@@ -880,7 +884,7 @@ See [Allow cross-origin reads](../guide/headers-and-cors.md#allow-cross-origin-r
 **Type:** list of strings\
 **Default:** none — required when `cors` is present.
 
-Nonempty list of exact origins, `scheme://host` with an optional port. The scheme is `http` or `https`; there is no path (not even `/`), query, fragment, credentials or wildcard. Hostnames are compared after normalization and default ports are ignored, so `https://example.com:443` and `https://example.com` are the same origin; equivalent entries are rejected.
+Nonempty list of exact origins, `scheme://host` with an optional [port](#ports). The scheme is `http` or `https`; there is no path (not even `/`), query, fragment, credentials or wildcard. Hostnames are compared after normalization and default ports are ignored, so `https://example.com:443` and `https://example.com` are the same origin; equivalent entries are rejected.
 
 ## `compression`
 

@@ -549,8 +549,7 @@ func validListener(s string) bool {
 	if err != nil {
 		return false
 	}
-	port, err := strconv.Atoi(p)
-	if err != nil || port < 1 || port > 65535 {
+	if !canonicalPort(p) {
 		return false
 	}
 	if h == "" {
@@ -621,13 +620,25 @@ func fixedOrigin(u *url.URL, rootPath bool) bool {
 	if strings.HasSuffix(u.Host, ":") {
 		return false
 	}
-	if p != "" {
-		n, err := strconv.Atoi(p)
-		if err != nil || n < 1 || n > 65535 {
+	if p != "" && !canonicalPort(p) {
+		return false
+	}
+	return u.RawPath == ""
+}
+
+// canonicalPort reports whether p is a port in canonical decimal form: 1 to 5
+// ASCII digits without a sign or leading zero, from 1 to 65535.
+func canonicalPort(p string) bool {
+	if len(p) == 0 || len(p) > 5 || p[0] == '0' {
+		return false
+	}
+	for i := 0; i < len(p); i++ {
+		if p[i] < '0' || p[i] > '9' {
 			return false
 		}
 	}
-	return u.RawPath == ""
+	n, _ := strconv.Atoi(p)
+	return n <= 65535
 }
 
 func asciiLower(s string) string {

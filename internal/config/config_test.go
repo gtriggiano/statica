@@ -624,6 +624,49 @@ func TestValidationMatchesStartupRules(t *testing.T) {
 	}
 }
 
+func TestCanonicalPorts(t *testing.T) {
+	for _, tt := range []struct{ name, input, path string }{
+		{"listensign", minimal + "server: {listen: '127.0.0.1:+8080'}", "server.listen"},
+		{"listenzero", minimal + "server: {listen: '127.0.0.1:08080'}", "server.listen"},
+		{"listenzeros", minimal + "server: {listen: ':0008080'}", "server.listen"},
+		{"adminsign", minimal + "admin: {listen: '127.0.0.1:+9090'}", "admin.listen"},
+		{"adminzero", minimal + "admin: {listen: '127.0.0.1:09090'}", "admin.listen"},
+		{"adminzeros", minimal + "admin: {listen: '127.0.0.1:0009090'}", "admin.listen"},
+		{"corssign", minimal + "cors: {allowed_origins: ['https://example.com:+443']}", "cors.allowed_origins[0]"},
+		{"corszero", minimal + "cors: {allowed_origins: ['https://example.com:0443']}", "cors.allowed_origins[0]"},
+		{"corszeros", minimal + "cors: {allowed_origins: ['https://example.com:000443']}", "cors.allowed_origins[0]"},
+		{"corsonlyzeros", minimal + "cors: {allowed_origins: ['https://example.com:00000']}", "cors.allowed_origins[0]"},
+		{"endpointsign", "s3: {bucket: example-websites, endpoint: 'https://s3.example.com:+9000'}", "s3.endpoint"},
+		{"endpointzero", "s3: {bucket: example-websites, endpoint: 'https://s3.example.com:09000'}", "s3.endpoint"},
+		{"endpointzeros", "s3: {bucket: example-websites, endpoint: 'https://s3.example.com:000009000'}", "s3.endpoint"},
+		{"endpointlarge", "s3: {bucket: example-websites, endpoint: 'https://s3.example.com:65536'}", "s3.endpoint"},
+		{"corsdefaultdup", minimal + "cors: {allowed_origins: ['https://example.com', 'https://example.com:443']}", "cors.allowed_origins[1]"},
+		{"corshttpdup", minimal + "cors: {allowed_origins: ['http://example.com:80', 'http://example.com']}", "cors.allowed_origins[1]"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Parse([]byte(tt.input), noEnv)
+			var ce *Error
+			if !errors.As(err, &ce) || ce.Path != tt.path {
+				t.Fatalf("want %s, got %v", tt.path, err)
+			}
+			for _, leak := range []string{"+", "0443", "08080", "09090", "09000"} {
+				if strings.Contains(ce.Problem, leak) {
+					t.Fatal("error repeated the configured port")
+				}
+			}
+		})
+	}
+	for _, input := range []string{
+		minimal + "server: {listen: '127.0.0.1:1'}\nadmin: {listen: '127.0.0.1:65535'}",
+		minimal + "server: {listen: ':8080'}\nadmin: {listen: '[::1]:10000'}",
+		minimal + "cors: {allowed_origins: ['https://example.com:443', 'http://example.com:80', 'https://example.com:8443', 'http://[2001:db8::1]:8080']}",
+		"s3: {bucket: example-websites, endpoint: 'https://s3.example.com:443'}",
+		"s3: {bucket: example-websites, endpoint: 'https://[2001:db8::1]:9000/'}",
+	} {
+		parseOK(t, input)
+	}
+}
+
 func TestHeaderSetDiagnostics(t *testing.T) {
 	for _, tt := range []struct{ name, input, path string }{
 		{"reserved", "headers: {set: {X-Custom: a, Set-Cookie: b}}", "headers.set.Set-Cookie"},
