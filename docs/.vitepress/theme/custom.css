@@ -126,3 +126,29 @@
   font-size: 12px;
   line-height: 18px;
 }
+
+/* Home feature cards: Oxide & Basalt icon badge and hover state. */
+.VPHome .VPFeature {
+  border-color: var(--vp-c-divider);
+  transition: border-color 0.25s, transform 0.2s ease, box-shadow 0.25s ease;
+}
+
+.VPHome .VPFeature.link:hover {
+  border-color: var(--vp-c-brand-1);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px -12px rgba(12, 13, 16, 0.14);
+}
+
+.dark .VPHome .VPFeature.link:hover {
+  box-shadow: 0 8px 24px -12px rgba(0, 0, 0, 0.5);
+}
+
+.VPHome .VPFeature .icon {
+  background-color: var(--vp-c-brand-soft);
+  border: 1px solid rgba(194, 65, 12, 0.18);
+  border-radius: 8px;
+}
+
+.dark .VPHome .VPFeature .icon {
+  border-color: rgba(251, 146, 60, 0.22);
+}

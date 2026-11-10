@@ -54,25 +54,45 @@ flowchart TD
   H -->|readiness| M
 ```
 
-**Public listener.** Serves `server.listen` over cleartext HTTP/1.1 or, when `server.tls` is configured, over HTTPS with HTTP/1.1 and HTTP/2 ([Serve HTTPS directly](../guide/tls.md)). Connections are capped by `server.max_connections`.
+### Public listener
 
-**Admission and client attribution.** The first step determines the client IP and the request ID. It uses the forwarded client IP (`server.client_ip_header`) and a proxy's request ID (`server.request_id_header`) only when the connecting peer is in `server.trusted_proxies`; otherwise it uses the peer address and generates a request ID. It then applies the request capacity check, the host checks, the method check and target validation. [Request flow](./request-flow.md#the-request-pipeline) describes each check, [Security model](./security.md) the trust placed in proxies, and [Run behind a reverse proxy, CDN or ingress](../guide/behind-a-proxy.md) how to configure them.
+The public listener serves `server.listen` over cleartext HTTP/1.1 or, when `server.tls` is configured, over HTTPS with HTTP/1.1 and HTTP/2 ([Serve HTTPS directly](../guide/tls.md)). Open connections are capped by `server.max_connections`.
 
-**Redirect rules.** The `redirects` rules are compiled at startup and evaluated in order against the validated path and query. A matching rule is answered with its status and `Location` without reading the origin.
+### Admission and client attribution
 
-**Resolution.** Maps the request path to object keys under the publication prefix and tries them in a fixed order: the object, its index object, the single-page-app shell when `spa` is configured, and the `not_found` object. With `compression.mode: precompressed`, it also looks for `.br` and `.gz` variants. [Request flow](./request-flow.md#from-path-to-object) describes the order, [SPA fallback](./spa-fallback.md) the shell and [Precompressed variants](./precompressed-variants.md) the variants.
+Before handling a request, statica determines the client IP and the request ID: it uses the forwarded client IP (`server.client_ip_header`) and a proxy's request ID (`server.request_id_header`) only when the connecting peer is in `server.trusted_proxies`, and otherwise uses the peer address and generates a request ID. It then applies the request capacity check, the host checks, the method check and target validation ([Request flow](./request-flow.md#the-request-pipeline), [Security model](./security.md), [Run behind a reverse proxy, CDN or ingress](../guide/behind-a-proxy.md)).
 
-**Memory cache.** Answers a read from memory when it holds a usable copy. Otherwise a `GET` reads the origin through one shared fill per object key, while `HEAD` requests and guarded range reads go to the origin directly. It is bounded by byte, entry and fill limits. With [`cache.enabled`](../reference/configuration.md#cache-enabled) set to `false` there is no memory cache and resolution reads the origin directly. [Memory cache](./memory-cache.md) describes it.
+### Redirect rules
 
-**S3 adapter.** Reads the configured bucket with the AWS SDK for Go v2, through `s3.endpoint` when it is set. Credentials come from the standard AWS credential chain. Each operation makes at most `s3.max_attempts` attempts, and the adapter does not follow redirects from the origin ([Connect to S3 and S3-compatible providers](../guide/s3-providers.md)). An origin 403 Forbidden is a denial, never a missing object ([Access denied](./access-denied.md)).
+The `redirects` rules are compiled at startup and evaluated in order against the validated path and query. A matching rule is answered at once with its status and `Location` header, without reading the origin ([Configure redirects](../guide/redirects.md)).
 
-**Response layer.** Evaluates conditional requests and ranges against the selected object, sets `Content-Type`, validators, `Cache-Control` and `Age`, and streams the body in chunks of 32 KiB. Every response it writes, errors and redirects included, carries `X-Request-ID`, `X-Content-Type-Options: nosniff`, the headers configured in `headers.set`, and the CORS grant when one applies. [Ranges and conditional requests](./ranges-and-conditionals.md) describes the preconditions and byte ranges, and [Cache-Control and Age](./cache-control.md) the freshness headers.
+### Resolution
 
-**Telemetry.** Each request has one record, delivered once when the request ends to the access log and to the Prometheus metrics, so both are derived from the same record. The access log writes it as an `http_request` event, unless `observability.access_log` is `false` or `observability.log_level` filters out the event's level. The [log reference](../reference/logs.md) and the [metrics reference](../reference/metrics.md) list what they record.
+When no redirect rule matches, resolution maps the request path to object keys under the publication prefix and tries them in a fixed order: the object, its index object, the single-page-app shell when `spa` is configured, and the `not_found` object. With `compression.mode` set to `precompressed`, it also looks for `.br` and `.gz` variants ([Request flow](./request-flow.md#from-path-to-object), [SPA fallback](./spa-fallback.md), [Precompressed variants](./precompressed-variants.md)).
 
-**Admin listener.** A separate cleartext HTTP/1.1 server on `admin.listen` with its own connection and time limits. It answers `GET` and `HEAD` on exactly `/livez`, `/readyz` and `/metrics`, without authentication, so bind it to a loopback or private address ([Admin endpoints reference](../reference/admin-endpoints.md)).
+### Memory cache
 
-**Origin health worker.** Optional, with `admin.origin_health`. It periodically sends a `HeadObject` for `admin.origin_health.key` through its own S3 client, with a single attempt and without the memory cache, and its results feed readiness ([Health checks and readiness](../guide/health-checks.md)).
+The memory cache answers a read from memory when it holds a usable copy, within its configured byte, entry and fill limits. On a miss, concurrent `GET` requests for the same object key share one origin fill, while `HEAD` requests and guarded range reads go to the origin directly. With [`cache.enabled`](../reference/configuration.md#cache-enabled) set to `false`, there is no memory cache and resolution reads the origin directly ([Memory cache](./memory-cache.md)).
+
+### S3 adapter
+
+The S3 adapter reads the configured bucket and prefix with the AWS SDK for Go v2, through `s3.endpoint` when it is set, using credentials from the standard AWS credential chain. Each operation makes at most `s3.max_attempts` attempts without following redirects from the origin ([Connect to S3 and S3-compatible providers](../guide/s3-providers.md)), and treats an origin 403 Forbidden as a denial, never a missing object ([Access denied](./access-denied.md)).
+
+### Response layer
+
+The response layer evaluates conditional requests and single byte ranges against the selected object, sets `Content-Type`, validators, `Cache-Control` and `Age`, and streams the body in chunks of 32 KiB. Every response it writes, errors and redirects included, carries `X-Request-ID`, `X-Content-Type-Options: nosniff`, the headers configured in `headers.set`, and the CORS grant when one applies ([Ranges and conditional requests](./ranges-and-conditionals.md), [Cache-Control and Age](./cache-control.md)).
+
+### Telemetry
+
+Each public request produces one record when it ends, delivered once to the access log and to the Prometheus metrics so both are derived from the same record. The access log writes it as an `http_request` event unless `observability.access_log` is `false` or `observability.log_level` filters out the event's level ([Log reference](../reference/logs.md), [Metrics reference](../reference/metrics.md)).
+
+### Admin listener
+
+The admin listener is a separate cleartext HTTP/1.1 server on `admin.listen` with its own connection and time limits. It answers `GET` and `HEAD` on `/livez`, `/readyz` and `/metrics` without authentication, so bind it to a loopback or private address ([Admin endpoints reference](../reference/admin-endpoints.md)).
+
+### Origin health worker
+
+When `admin.origin_health` is enabled, a background worker periodically sends a single-attempt `HeadObject` request for `admin.origin_health.key` through its own S3 client, without the memory cache, and feeds its results into readiness ([Health checks and readiness](../guide/health-checks.md)).
 
 ## What statica does not do
 

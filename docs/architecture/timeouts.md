@@ -15,21 +15,21 @@ sequenceDiagram
   participant O as Origin
   C->>S: Request headers
   Note over C,S: server.read_header_timeout
-  Note over S: Admission starts server.response_header_timeout
+  Note over S: Admission starts<br/>server.response_header_timeout
   alt Direct origin read
     S->>O: GET, attempt 1
-    Note over S,O: s3.response_header_timeout per attempt, up to s3.max_attempts
+    Note over S,O: s3.response_header_timeout<br/>per attempt, up to s3.max_attempts
     O-->>S: Response headers
   else Read through a shared fill
-    Note over S,O: cache.fill_timeout bounds the fill, which makes the same attempts
+    Note over S,O: cache.fill_timeout bounds the fill,<br/>which makes the same attempts
   end
   S-->>C: Final response headers
   Note over S: Preparation ends
   loop Until the body ends
     S->>O: Read the next chunk
-    Note over S,O: s3.read_idle_timeout while the read is pending
+    Note over S,O: s3.read_idle_timeout<br/>while the read is pending
     S-->>C: Write the chunk
-    Note over C,S: server.write_idle_timeout while the write is pending
+    Note over C,S: server.write_idle_timeout<br/>while the write is pending
   end
   Note over C,O: server.request_timeout, when set, from admission to the end
 ```
