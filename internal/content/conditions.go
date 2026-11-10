@@ -14,14 +14,14 @@ import (
 // the lower-priority date condition, so a broken validator cannot change the
 // precedence of otherwise valid conditions.
 func precondition(h http.Header, m storage.Metadata) int {
-	if values, present := h["If-Match"]; present {
+	if values := h.Values("If-Match"); len(values) > 0 {
 		if tags, wildcard, valid := entityTags(strings.Join(values, ",")); valid && !wildcard && !tagMatches(tags, m.ETag, true) {
 			return http.StatusPreconditionFailed
 		}
 	} else if date, ok := singleDate(h, "If-Unmodified-Since"); ok && !m.LastModified.IsZero() && m.LastModified.Truncate(time.Second).After(date) {
 		return http.StatusPreconditionFailed
 	}
-	if values, present := h["If-None-Match"]; present {
+	if values := h.Values("If-None-Match"); len(values) > 0 {
 		if tags, wildcard, valid := entityTags(strings.Join(values, ",")); valid && (wildcard || tagMatches(tags, m.ETag, false)) {
 			return http.StatusNotModified
 		}

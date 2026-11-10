@@ -55,10 +55,11 @@ func vary(h http.Header, s *site.Selection) {
 func (h *handler) objectHeaders(out http.Header, s *site.Selection, publicPath string, now time.Time) string {
 	m := s.Metadata
 	vary(out, s)
-	out.Set("Content-Type", contentType(s.ContentType, s.LogicalPath))
-	if s.ContentType == "" {
-		out.Set("Content-Type", contentType(m.ContentType, s.LogicalPath))
+	declared := s.ContentType
+	if declared == "" {
+		declared = m.ContentType
 	}
+	out.Set("Content-Type", contentType(declared, s.LogicalPath))
 	if m.Size >= 0 {
 		out.Set("Content-Length", strconv.FormatInt(m.Size, 10))
 	}
