@@ -121,7 +121,7 @@ To tell cause 3 from cause 1, request a URL whose object certainly exists, such 
 | `error_class=request_capacity`, with `authority` instead of `host` | Every one of `server.max_concurrent_requests` request slots was in use. The check runs before any other, so the request has no host yet. |
 | `error_class=origin_throttled` | The origin kept throttling the read after `s3.max_attempts` attempts. |
 | `termination_reason=shutdown`, at `warn` | A shutdown canceled the request before its headers. |
-| `error_class=origin_inconsistent` | The object kept changing during a range read from the origin. |
+| `error_class=origin_inconsistent` | The object kept changing while statica served a range request. |
 
 **Confirm.** `statica_http_rejected_requests_total{reason="request_capacity"}` counts capacity rejections, and `statica_http_requests_in_flight` shows how many slots are in use. Long downloads hold their slot for their whole duration ([request capacity](../architecture/request-flow.md#request-capacity)).
 

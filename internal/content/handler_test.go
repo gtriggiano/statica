@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -20,6 +21,9 @@ import (
 	"github.com/gtriggiano/statica/internal/storage"
 )
 
+// fakeReader serves Get with get. Without head, a Head returns the metadata
+// get returns without options and closes its body, as S3 sends a HEAD the
+// headers of the GET; the get calls it makes count as HEADs.
 type fakeReader struct {
 	get  func(context.Context, string, storage.ReadOptions) (*storage.Object, error)
 	head func(context.Context, string) (storage.Metadata, error)
@@ -32,7 +36,15 @@ func (f fakeReader) Head(ctx context.Context, key string) (storage.Metadata, err
 	if f.head != nil {
 		return f.head(ctx, key)
 	}
-	return storage.Metadata{}, errors.New("unexpected HEAD")
+	obj, err := f.get(ctx, key, storage.ReadOptions{})
+	if err != nil {
+		return storage.Metadata{}, err
+	}
+	if obj == nil || obj.Body == nil {
+		return storage.Metadata{}, errors.New("unexpected HEAD")
+	}
+	_ = obj.Body.Close()
+	return obj.Metadata, nil
 }
 
 func testConfig(t testing.TB) *config.Config {
@@ -122,7 +134,12 @@ func TestHEADAndConditionsCloseSnapshotWithoutReading(t *testing.T) {
 	if w.Code != 200 || w.Body.Len() != 0 || w.Header().Get("Content-Length") != "5" || gets.Load() != 0 || heads.Load() != 1 {
 		t.Fatalf("HEAD %d %s calls %d/%d", w.Code, w.Header(), gets.Load(), heads.Load())
 	}
+	// A range request resolves on metadata: its 304 opens no body.
 	w = request(h, "GET", "http://example.org/file.txt", http.Header{"If-None-Match": {`W/"v1"`}, "Range": {"bytes=1-2"}})
+	if w.Code != 304 || w.Body.Len() != 0 || w.Header().Get("ETag") != `"v1"` || w.Header().Get("Content-Length") != "" || gets.Load() != 0 || heads.Load() != 2 || observation.OriginKey != "file.txt" {
+		t.Fatalf("range 304 %d %+v calls %d/%d observation %+v", w.Code, w.Header(), gets.Load(), heads.Load(), observation)
+	}
+	w = request(h, "GET", "http://example.org/file.txt", http.Header{"If-None-Match": {`W/"v1"`}})
 	if w.Code != 304 || w.Body.Len() != 0 || w.Header().Get("ETag") != `"v1"` || w.Header().Get("Content-Length") != "" || !body.closed.Load() || observation.OriginKey != "file.txt" {
 		t.Fatalf("304 %d %+v observation %+v", w.Code, w.Header(), observation)
 	}
@@ -142,8 +159,7 @@ func TestRangesAreGuardedAndMutationRestartsAreBounded(t *testing.T) {
 			f := fakeReader{get: func(_ context.Context, _ string, o storage.ReadOptions) (*storage.Object, error) {
 				calls++
 				if o.Range == "" {
-					snapshots++
-					return object("abcdef", storage.Metadata{Size: 6, ETag: `"v1"`}), nil
+					t.Fatal("a range request read the full object")
 				}
 				guards++
 				if o.Range != "bytes=1-3" || o.IfMatch != `"v1"` {
@@ -153,6 +169,10 @@ func TestRangesAreGuardedAndMutationRestartsAreBounded(t *testing.T) {
 					return nil, &storage.Error{Kind: storage.Precondition}
 				}
 				return object("bcd", storage.Metadata{Size: 3, ETag: `"v1"`, ContentRange: "bytes 1-3/6"}), nil
+			}, head: func(context.Context, string) (storage.Metadata, error) {
+				calls++
+				snapshots++
+				return storage.Metadata{Size: 6, ETag: `"v1"`}, nil
 			}}
 			w := request(boundary(t, c, f), "GET", "http://example.org/f", http.Header{"Range": {"bytes=1-3"}})
 			if mutations < 2 {
@@ -180,6 +200,8 @@ func TestRangeParsingAndSafeFullResponseFallbacks(t *testing.T) {
 		{"bytes=-2", "", true, true, `"v"`, 206, "ef"},
 		{"bytes=4-", "", true, true, `"v"`, 206, "ef"},
 		{"bytes=6-", "", true, true, `"v"`, 416, "Requested Range Not Satisfiable\n"},
+		{"bytes=6-", `"other"`, true, true, `"v"`, 200, "abcdef"}, // If-Range is decided before satisfiability
+		{"bytes=6-", "", true, true, `W/"v"`, 200, "abcdef"},
 		{"bytes=0-1,3-4", "", true, true, `"v"`, 200, "abcdef"},
 		{"bytes=+0-1", "", true, true, `"v"`, 200, "abcdef"},
 		{"bytes=3-1", "", true, true, `"v"`, 200, "abcdef"},
@@ -194,13 +216,17 @@ func TestRangeParsingAndSafeFullResponseFallbacks(t *testing.T) {
 			c := testConfig(t)
 			c.S3.Features.ConditionalReads = tc.conditional
 			c.S3.Features.RangeReads = tc.ranges
-			calls := 0
+			heads, full, ranged := 0, 0, 0
 			f := fakeReader{get: func(_ context.Context, _ string, o storage.ReadOptions) (*storage.Object, error) {
-				calls++
 				if o.Range != "" {
+					ranged++
 					return object("ef", storage.Metadata{Size: 2, ETag: tc.etag, ContentRange: "bytes 4-5/6"}), nil
 				}
+				full++
 				return object("abcdef", storage.Metadata{Size: 6, ETag: tc.etag}), nil
+			}, head: func(context.Context, string) (storage.Metadata, error) {
+				heads++
+				return storage.Metadata{Size: 6, ETag: tc.etag}, nil
 			}}
 			headers := http.Header{"Range": {tc.value}}
 			if tc.ifRange != "" {
@@ -210,8 +236,12 @@ func TestRangeParsingAndSafeFullResponseFallbacks(t *testing.T) {
 			if w.Code != tc.status || w.Body.String() != tc.body {
 				t.Fatalf("got %d %q want %d %q", w.Code, w.Body.String(), tc.status, tc.body)
 			}
-			if tc.status != 206 && calls != 1 {
-				t.Fatalf("fallback used %d GETs", calls)
+			// A single range with both capabilities resolves on metadata;
+			// only a 200 then reads the full object, only a 206 a range.
+			_, single, _ := parseRange(tc.value, math.MaxInt64)
+			want := map[bool]int{false: 0, true: 1}
+			if heads != want[single && tc.conditional && tc.ranges] || full != want[tc.status == 200] || ranged != want[tc.status == 206] {
+				t.Fatalf("reads: %d HEAD, %d full GET, %d ranged GET", heads, full, ranged)
 			}
 		})
 	}

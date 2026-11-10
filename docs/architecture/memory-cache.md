@@ -15,7 +15,7 @@ An entry holds what the origin returned, the body bytes and the object's metadat
 ## Entry kinds
 
 - **Body** entries hold the complete bytes and metadata of an object. They answer `GET`, `HEAD` and range requests.
-- **Metadata** entries hold the result of a `HEAD` request that read the origin. They answer `HEAD` requests only: a `GET` never uses one, and the body entry it stores replaces it.
+- **Metadata** entries hold the result of a metadata read from the origin, made for a `HEAD` request or a range request. They answer `HEAD` requests and give range requests the metadata they are decided on, but never a body: a `GET` that needs the body reads it, and the body entry it stores replaces the metadata entry.
 - **Negative** entries record that the origin confirmed the key missing. While they are fresh, they answer `GET` and `HEAD` requests for the key as missing without an origin read.
 
 All three kinds count toward the same limits.
@@ -43,7 +43,7 @@ stateDiagram-v2
 - Nothing removes an entry when it expires. A stale entry stays in memory, and stays charged, until a request revalidates or replaces it or eviction removes it. `statica_cache_expirations_total` counts the entries that a lookup found expired.
 - A request can also force the revalidation of a fresh entry (see [request directives](#request-directives)). The revalidation then has the same outcomes as for a stale entry.
 - A changed object replaces the entry with a new body entry, a confirmed absence replaces it with a negative entry, and an access denial removes it without storing anything. [Revalidation](#revalidation) has the details.
-- Metadata entries expire the same way; a `HEAD` then reads the origin's metadata again and replaces them (see [HEAD requests](#head-requests)). Negative entries live for [`cache.negative_ttl`](../reference/configuration.md#cache-negative-ttl) (see [negative entries](#negative-entries)).
+- Metadata entries expire the same way; the next `HEAD` or range request then reads the origin's metadata again and replaces them (see [HEAD requests](#head-requests)). Negative entries live for [`cache.negative_ttl`](../reference/configuration.md#cache-negative-ttl) (see [negative entries](#negative-entries)).
 
 ## Limits and accounting
 
@@ -231,7 +231,7 @@ A `GET` whose origin answer is a 404 with the error code `NoSuchKey` stores a ne
 
 Resolution reads one key per candidate, so one missing page can leave several negative entries. A request for `/about` that ends in the built-in 404 leaves entries for the keys of `/about` and `/about/index.html`, and with `compression.mode: precompressed` one for each variant it tried.
 
-No negative entry is ever stored for a 403, for a 404 without `NoSuchKey`, or for any other error. A `HEAD` cannot confirm an absence by itself: the `GET` that confirms it stores the negative entry that later `HEAD` requests reuse (see [HEAD requests](#head-requests)).
+No negative entry is ever stored for a 403, for a 404 without `NoSuchKey`, or for any other error. A `HEAD` cannot confirm an absence by itself: the `GET` that confirms it stores the negative entry that later `HEAD` and range requests reuse (see [HEAD requests](#head-requests)).
 
 An object published after a request found it missing is served once its negative entry expires.
 
@@ -255,18 +255,25 @@ A request waiting for a shared fill gives up at its own deadline, `server.respon
 
 ## HEAD requests
 
-A `HEAD` is answered from memory, as `cache=metadata_hit`, when a fresh body or metadata entry exists, and as missing when a fresh negative entry exists. `HEAD` requests never count as `hit`, so they do not inflate the body hit ratio.
+A `HEAD` is answered from memory, as `cache=metadata_hit`, when a fresh body or metadata entry exists, and as missing when a fresh negative entry exists. `HEAD` requests never count as `hit`, so they do not inflate the body hit ratio. A range request reads its metadata the same way (see [Ranges](#ranges)).
 
 Otherwise the `HEAD` sends its own `HeadObject` to the origin, within its own deadlines and outside any shared fill, and stores the answer as a metadata entry. A `HEAD` reads no body itself:
 
 - When the entry it found was a stale body whose strong `ETag` matches the origin's, that body entry is updated with the merged metadata, and the request reports `cache=revalidated`.
 - When the `ETag` differs or is weak, the metadata entry replaces the body entry, and the next `GET` fetches the object.
 - A 403 removes the entry and serves no stale copy; other failures can serve the stale entry under stale-if-error, as for a `GET`.
-- S3 answers a missing object to a `HeadObject` with a 404 that carries no error code, so a `HEAD` cannot confirm an absence by itself. Resolution then reads the same key with an ordinary `GET` through the memory cache, a shared fill like any other. If the object is missing, that `GET` stores the negative entry that later `HEAD` requests reuse; if the object exists after all, it downloads and stores the object like any `GET` miss.
+- S3 answers a missing object to a `HeadObject` with a 404 that carries no error code, so a `HEAD` cannot confirm an absence by itself. Resolution then reads the same key with an ordinary `GET` through the memory cache, a shared fill like any other. If the object is missing, that `GET` stores the negative entry that later `HEAD` and range requests reuse; if the object exists after all, it downloads and stores the object like any `GET` miss.
 
 ## Ranges
 
-A single range is cut from a complete body in memory, a fresh entry or a body that the request's shared fill read a moment before, whatever [`s3.features.range_reads`](../reference/configuration.md#s3-features-range-reads) and `s3.features.conditional_reads` say, provided the object has a strong `ETag`. A range request for an object up to `max_object_bytes` that is not in memory therefore fills the whole object first, then answers with 206 Partial Content from memory. When the object streamed instead, the range is read from the origin with a request guarded by `If-Match` when both provider features allow it, and nothing is stored: partial content never becomes an entry. [Ranges and conditional requests](./ranges-and-conditionals.md) describes when each path applies and how `Accept-Ranges` is chosen.
+A single range is cut from a complete body in memory, a fresh entry or a body that the request's shared fill read a moment before, whatever [`s3.features.range_reads`](../reference/configuration.md#s3-features-range-reads) and `s3.features.conditional_reads` say, provided the object has a strong `ETag`. Partial content never becomes an entry.
+
+With both provider features enabled, a range request is decided on metadata first, read like a `HEAD`: from a fresh body or metadata entry, as `cache=metadata_hit`, or with a `HeadObject` whose answer is stored as a metadata entry. Then:
+
+- For an object up to `max_object_bytes` whose metadata read did not bypass the cache, statica reads the body with an ordinary `GET` through the cache: a fresh body entry, or a shared fill that reads the whole object, and the range is cut from that body. The access log records the outcome of that `GET`, such as `hit` or `miss`.
+- For a larger object, or one whose metadata read bypassed the cache, for example for a disabled rule, a request with `no-store` or an origin `no-store` or `private` policy, the range is read from the origin with a request guarded by `If-Match`. While the metadata entry of a larger object is fresh, each such range costs that one origin read, and the access log records `cache=metadata_hit`.
+
+With either feature disabled, a range request reads the object like any `GET`, and a range is served only from a body in memory. [Ranges and conditional requests](./ranges-and-conditionals.md#where-a-range-comes-from) describes when each path applies, the 304, 412 and 416 answers decided on metadata alone, and how `Accept-Ranges` is chosen.
 
 ## Bypasses and outcomes
 

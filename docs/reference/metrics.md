@@ -162,7 +162,7 @@ Admitted requests whose response used a memory cache lookup, counted once per re
 | `outcome` | Meaning |
 | --- | --- |
 | `hit` | A fresh body served from memory to a `GET`, ranges included. |
-| `metadata_hit` | A `HEAD` answered from a fresh entry. A `HEAD` is never a `hit`. |
+| `metadata_hit` | A `HEAD` answered from a fresh entry, or a range request decided on metadata from a fresh entry: a 304, 412 or 416, or a 206 whose bytes came from the origin. A `HEAD` is never a `hit`. |
 | `negative_hit` | A fresh negative entry: a confirmed missing object, without an origin read. |
 | `miss` | An origin read for a missing or unusable entry, or its failure. |
 | `revalidated` | A stored body that the origin confirmed unchanged. |
