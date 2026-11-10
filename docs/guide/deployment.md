@@ -225,7 +225,7 @@ ts=2026-11-08T00:16:58.870Z level=info event=shutdown_complete reason=signal out
 ## Pitfalls
 
 - **Probes on loopback.** A probe from another host or from the kubelet cannot reach `127.0.0.1`. Bind the admin listener to an address the prober reaches.
-- **Same port, different names.** `admin.listen` must differ from `server.listen`, but the check compares text: `localhost:8080` and `127.0.0.1:8080` pass validation and then fail to bind with `startup_failed stage=bind_admin`.
+- **Same port, different names.** `admin.listen` must not share a socket with `server.listen`: `config validate` rejects equal hosts, a host on every interface and two loopback hosts (`localhost`, `127.0.0.0/8`, `::1`) on the same port, but two different DNS names that resolve to the same address pass validation and then fail to bind with `startup_failed stage=bind_admin`.
 - **A short grace period.** A SIGKILL during the drain cuts requests and loses queued log lines, including `shutdown_complete`.
 - **`systemctl reload`.** Any reload action that sends SIGHUP stops statica.
 

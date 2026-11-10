@@ -27,7 +27,7 @@ import (
 type Outcome string
 
 const (
-	OutcomeHit         Outcome = "hit"          // a fresh body entry served from memory to a GET or range
+	OutcomeHit         Outcome = "hit"          // a fresh body entry served from memory to a GET
 	OutcomeMetadataHit Outcome = "metadata_hit" // a HEAD answered from a fresh body or metadata entry
 	OutcomeNegativeHit Outcome = "negative_hit" // a fresh negative entry: NotFound without origin I/O
 	OutcomeMiss        Outcome = "miss"         // an origin read for an absent or unusable entry, or its failure
@@ -50,10 +50,9 @@ const (
 	ReasonTooLarge       Reason = "too_large"        // the object streams: it exceeds max_object_bytes
 	ReasonUncacheable    Reason = "uncacheable"      // the origin metadata may not be stored (no-store, private, malformed)
 	ReasonFillBudget     Reason = "fill_budget"      // the object streams: other fills hold max_fill_bytes
-	ReasonRange          Reason = "range"            // a range or If-Match read without a fresh body to slice
 )
 
-var reasons = [...]Reason{ReasonDisabled, ReasonRequestNoStore, ReasonShutdown, ReasonFillsFull, ReasonWaitersFull, ReasonUnknownSize, ReasonTooLarge, ReasonUncacheable, ReasonFillBudget, ReasonRange}
+var reasons = [...]Reason{ReasonDisabled, ReasonRequestNoStore, ReasonShutdown, ReasonFillsFull, ReasonWaitersFull, ReasonUnknownSize, ReasonTooLarge, ReasonUncacheable, ReasonFillBudget}
 
 // FillResult is the finite outcome of one flight.
 type FillResult string
@@ -474,29 +473,6 @@ func (c *Cache) direct(ctx context.Context, key string, opts storage.ReadOptions
 	}
 	l.Metadata, l.RequestTime, l.ResponseTime, l.object = obj.Metadata, requested, c.now(), obj
 	return l, nil
-}
-
-// Range reads key for a GET whose opts carry a Range or If-Match. Only a
-// fresh body entry is reused, as a hit whose bytes the caller slices and
-// whose validator it compares itself. Anything else reads the origin
-// directly within ctx with opts: no flight, and nothing stored or removed,
-// since partial content never becomes a complete object.
-func (c *Cache) Range(ctx context.Context, key string, req httpcache.Request, opts storage.ReadOptions) (*Lookup, error) {
-	p := c.policy(key)
-	switch {
-	case !p.Enabled:
-		return c.direct(ctx, key, opts, ReasonDisabled)
-	case req.NoStore:
-		return c.direct(ctx, key, opts, ReasonRequestNoStore)
-	}
-	if h, ok := c.store.Acquire(key); ok {
-		snap := h.Snapshot()
-		if c.fresh(h, p, req, snap) && snap.Kind == KindBody {
-			return served(OutcomeHit, h, snap), nil
-		}
-		h.Release()
-	}
-	return c.direct(ctx, key, opts, ReasonRange)
 }
 
 // Head reads key's metadata for a HEAD carrying req and never fetches a

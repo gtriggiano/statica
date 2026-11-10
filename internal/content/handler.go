@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -60,8 +61,11 @@ const (
 // is then what that fill produced for this request. When resolution
 // selected an object, that is its resolver lookup: for a successful GET,
 // HEAD, 304, 412, range or 416, for a SPA shell or custom 404, and for the
-// index lookup behind a trailing-slash redirect. A guarded origin range read
-// that follows a cold selection does not replace it. Otherwise, as for a
+// index lookup behind a trailing-slash redirect. A range request resolves on
+// metadata: when it then reads the object's body through the cache, for a
+// 200 or a range sliced from memory, that read replaces it; a guarded origin
+// range read does not, so a range served with metadata from memory and bytes
+// from the origin reports cache.OutcomeMetadataHit. Otherwise, as for a
 // built-in 404 or an origin failure, it is the request's last lookup, so a
 // built-in 404 whose last fallback candidate was a negative entry reports
 // cache.OutcomeNegativeHit. They are empty without a cache or a lookup.
@@ -146,7 +150,11 @@ func WithObserver(observer func(Observation)) HandlerOption {
 // A selected body held in memory, including one this request has just
 // filled, is a complete snapshot: it answers single ranges by slicing it,
 // whatever the provider range and conditional-read capabilities, while
-// streamed objects keep the uncached range behaviour. Accept-Ranges still
+// streamed objects keep the uncached range behaviour. With both
+// capabilities, a range request resolves on metadata and reads its body
+// through the cache only when the object fits max_object_bytes and its
+// metadata lookup did not bypass the cache; a body that still streams is
+// closed for a guarded origin range read. Accept-Ranges still
 // follows the provider capabilities alone, as without a cache, so that it
 // never depends on residency. A nil c leaves the handler uncached.
 func WithCache(c *cache.Cache) HandlerOption {
@@ -154,6 +162,7 @@ func WithCache(c *cache.Cache) HandlerOption {
 }
 
 type handler struct {
+	origin                        storage.Reader
 	reader                        storage.Reader
 	resolver                      *site.Resolver
 	memory                        *cache.Cache
@@ -178,7 +187,7 @@ func NewHandler(cfg *config.Config, reader storage.Reader, options ...HandlerOpt
 	if cfg.Server.ResponseHeaderTimeout <= 0 || cfg.Server.WriteIdleTimeout <= 0 || cfg.Server.RequestTimeout < 0 {
 		return nil, fmt.Errorf("content requires valid timeout budgets")
 	}
-	h := &handler{reader: reader, cache: cfg.Cache, cacheControl: cfg.CacheControl,
+	h := &handler{origin: reader, reader: reader, cache: cfg.Cache, cacheControl: cfg.CacheControl,
 		features: cfg.S3.Features, accessDenied: cfg.Errors.AccessDenied,
 		preparation: cfg.Server.ResponseHeaderTimeout, writeIdle: cfg.Server.WriteIdleTimeout, total: cfg.Server.RequestTimeout}
 	h.cache.Rules = append([]config.CacheRule(nil), cfg.Cache.Rules...)
@@ -338,7 +347,23 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer phase.close()
 	ctx = phase.ctx
 	req := site.Request{Target: metadata.Target, Method: r.Method, Header: r.Header}
+	ranges := strings.Join(r.Header.Values("Range"), ",")
+	// A GET with a single byte range resolves without a body when the
+	// provider can serve ranges: whether it needs one, and which, depends on
+	// the conditions and the range, which need the object's metadata. Without
+	// both capabilities the range is ignored and the full body is needed.
+	if r.Method == http.MethodGet && h.features.RangeReads && h.features.ConditionalReads {
+		_, req.MetadataOnly, _ = parseRange(ranges, math.MaxInt64)
+	}
 	for revision := 0; revision < 2; revision++ {
+		if revision == 1 && h.memory != nil {
+			// The object changed since its selection. A metadata entry still
+			// in memory would select the same revision again: the retry
+			// revalidates every lookup with the origin instead.
+			directives := httpcache.RequestDirectives(r.Header)
+			directives.NoCache = true
+			ctx = cache.WithRequest(ctx, directives)
+		}
 		selection, err := h.resolver.Resolve(ctx, req)
 		if h.memory != nil {
 			key := ""
@@ -374,6 +399,72 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.generated(w, r, selection.Status, &observation, phase)
 			return
 		}
+		advertise := h.features.RangeReads && h.features.ConditionalReads && selection.RangeCapable && httpcache.StrongETag(selection.Metadata.ETag)
+		// A selection resolved without a body reads one only when its response
+		// needs it: none for a 304, 412 or 416, nor for a range the origin
+		// serves; through the cache a body held in memory, or one this read
+		// fills, for a range it slices; the whole object for a 200.
+		if req.MetadataOnly && selection.Status == http.StatusOK && selection.Body == nil {
+			read, memory := true, false
+			if precondition(r.Header, selection.Metadata) != 0 {
+				read = false
+			} else if advertise && requestIfRangeMatches(r.Header, selection.Metadata) {
+				if _, valid, satisfiable := parseRange(ranges, selection.Metadata.Size); valid {
+					read = false
+					if satisfiable && h.memory != nil && selection.Metadata.Size <= int64(h.cache.MaxObjectBytes) {
+						// A bypassed metadata lookup means no body of this object
+						// can be in memory or stored for this request.
+						lookup, ok := cache.LastLookup(ctx, selection.Key)
+						memory = ok && lookup.Outcome != cache.OutcomeBypass
+					}
+				}
+			}
+			if read || memory {
+				object, err := h.reader.Get(ctx, selection.Key, storage.ReadOptions{})
+				resident := false
+				if err == nil && object != nil {
+					_, resident = object.Body.(*cache.Body)
+				}
+				if memory && err == nil && object != nil && !resident {
+					// The cache could not buffer it: the origin serves the range.
+					if object.Body != nil {
+						_ = object.Body.Close()
+					}
+				} else {
+					if h.memory != nil {
+						// This lookup supplies the response's bytes.
+						lookup, _ := cache.LastLookup(ctx, selection.Key)
+						observation.CacheOutcome, observation.CacheReason, observation.CacheCoalesced = lookup.Outcome, lookup.Reason, lookup.Coalesced
+					}
+					if err != nil {
+						if object != nil && object.Body != nil {
+							_ = object.Body.Close()
+						}
+						h.originError(w, r, ctx, err, &observation, phase)
+						return
+					}
+					if object == nil || object.Body == nil || object.Metadata.ContentRange != "" {
+						if object != nil && object.Body != nil {
+							_ = object.Body.Close()
+						}
+						h.originError(w, r, ctx, &storage.Error{Kind: storage.InvalidResponse}, &observation, phase)
+						return
+					}
+					coding := objectCoding(selection, object.Metadata)
+					if object.Metadata.ETag != selection.Metadata.ETag || coding != selection.Coding {
+						_ = object.Body.Close()
+						if revision == 0 {
+							continue
+						}
+						failOrigin(r, &observation, ReasonOriginFailure, classInconsistent)
+						h.generated(w, r, http.StatusServiceUnavailable, &observation, phase)
+						return
+					}
+					adopt(selection, object, coding)
+					body = ownBody(ctx, object.Body)
+				}
+			}
+		}
 		status := selection.Status
 		if status == http.StatusOK {
 			if conditional := precondition(r.Header, selection.Metadata); conditional != 0 {
@@ -386,11 +477,10 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Accept-Ranges is advertised from provider capabilities alone.
 		_, local := selection.Body.(*cache.Body)
 		local = local && selection.Metadata.Size >= 0 && httpcache.StrongETag(selection.Metadata.ETag)
-		advertise := h.features.RangeReads && h.features.ConditionalReads && selection.RangeCapable && httpcache.StrongETag(selection.Metadata.ETag)
 		var span byteRange
 		sliced := false
 		if status == http.StatusOK && r.Method != http.MethodHead && (local || advertise) && requestIfRangeMatches(r.Header, selection.Metadata) {
-			br, valid, satisfiable := parseRange(strings.Join(r.Header.Values("Range"), ","), selection.Metadata.Size)
+			br, valid, satisfiable := parseRange(ranges, selection.Metadata.Size)
 			if valid && !satisfiable {
 				body.release()
 				observation.Resolution = selection.Resolution
@@ -405,7 +495,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				status = http.StatusPartialContent
 			} else if valid {
 				body.release()
-				object, rangeErr := h.reader.Get(ctx, selection.Key, storage.ReadOptions{Range: br.request(), IfMatch: selection.Metadata.ETag})
+				object, rangeErr := h.origin.Get(ctx, selection.Key, storage.ReadOptions{Range: br.request(), IfMatch: selection.Metadata.ETag})
 				if rangeErr != nil {
 					if object != nil && object.Body != nil {
 						_ = object.Body.Close()
@@ -428,13 +518,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					h.originError(w, r, ctx, &storage.Error{Kind: storage.InvalidResponse}, &observation, phase)
 					return
 				}
-				coding := strings.ToLower(strings.TrimSpace(object.Metadata.ContentEncoding))
-				if coding == "" || coding == "identity" {
-					coding = "identity"
-					if selection.ObjectPath != selection.LogicalPath && object.Metadata.ContentEncoding == "" {
-						coding = selection.Coding
-					}
-				}
+				coding := objectCoding(selection, object.Metadata)
 				if coding != selection.Coding || !requestIfRangeMatches(r.Header, object.Metadata) {
 					_ = object.Body.Close()
 					if revision == 0 {
@@ -444,18 +528,9 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					h.generated(w, r, http.StatusServiceUnavailable, &observation, phase)
 					return
 				}
-				selection.Body = object.Body
 				// If-Match guards representation bytes, not metadata-only updates.
 				// All response metadata therefore comes from the actual ranged GET.
-				selection.Metadata = object.Metadata
-				if coding == "identity" {
-					selection.Metadata.ContentEncoding = ""
-				} else {
-					selection.Metadata.ContentEncoding = coding
-				}
-				if selection.ObjectPath == selection.LogicalPath {
-					selection.ContentType = contentType(object.Metadata.ContentType, selection.LogicalPath)
-				}
+				adopt(selection, object, coding)
 				body = ownBody(ctx, object.Body)
 				status = http.StatusPartialContent
 				if conditional := precondition(r.Header, selection.Metadata); conditional != 0 {
@@ -512,9 +587,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				data = data[span.start : span.end+1]
 			}
 			err = h.transferResident(ctx, w, data, selection.Metadata.Size, totalDeadline, &observation)
-			// The lookup that supplied the body: the selection's, or the
-			// guarded range read that followed a streamed selection.
-			if record, _ := cache.LastLookup(ctx, selection.Key); record.Outcome == cache.OutcomeHit || record.Outcome == cache.OutcomeRevalidated || record.Outcome == cache.OutcomeStale {
+			if observation.CacheOutcome == cache.OutcomeHit || observation.CacheOutcome == cache.OutcomeRevalidated || observation.CacheOutcome == cache.OutcomeStale {
 				observation.CacheBytes = observation.Bytes
 			}
 		} else {
@@ -524,6 +597,33 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.abort(ctx, &observation, err, false)
 		}
 		return
+	}
+}
+
+// objectCoding is the content coding of a read of the selected object: the
+// one it declares, or the selection's for a precompressed variant that
+// declares none.
+func objectCoding(s *site.Selection, m storage.Metadata) string {
+	coding := strings.ToLower(strings.TrimSpace(m.ContentEncoding))
+	if coding == "" || coding == "identity" {
+		coding = "identity"
+		if s.ObjectPath != s.LogicalPath && m.ContentEncoding == "" {
+			coding = s.Coding
+		}
+	}
+	return coding
+}
+
+// adopt makes a read of the selected object, whose content coding is coding,
+// the selection's body, and its metadata the response's.
+func adopt(s *site.Selection, object *storage.Object, coding string) {
+	s.Body, s.Metadata = object.Body, object.Metadata
+	s.Metadata.ContentEncoding = coding
+	if coding == "identity" {
+		s.Metadata.ContentEncoding = ""
+	}
+	if s.ObjectPath == s.LogicalPath {
+		s.ContentType = contentType(object.Metadata.ContentType, s.LogicalPath)
 	}
 }
 

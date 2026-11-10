@@ -72,7 +72,7 @@ When no redirect rule matches, resolution maps the request path to object keys u
 
 ### Memory cache
 
-The memory cache answers a read from memory when it holds a usable copy, within its configured byte, entry and fill limits. On a miss, concurrent `GET` requests for the same object key share one origin fill, while `HEAD` requests and guarded range reads go to the origin directly. With [`cache.enabled`](../reference/configuration.md#cache-enabled) set to `false`, there is no memory cache and resolution reads the origin directly ([Memory cache](./memory-cache.md)).
+The memory cache answers a read from memory when it holds a usable copy, within its configured byte, entry and fill limits. On a miss, concurrent `GET` requests for the same object key share one origin fill, while the metadata reads of `HEAD` and range requests, and guarded range reads, go to the origin directly. With [`cache.enabled`](../reference/configuration.md#cache-enabled) set to `false`, there is no memory cache and resolution reads the origin directly ([Memory cache](./memory-cache.md)).
 
 ### S3 adapter
 

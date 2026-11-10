@@ -27,7 +27,7 @@ observability:
 
 - [`observability.log_level`](../reference/configuration.md#observability-log-level) (`info`) sets the minimum level written, for every event, access events included. An `http_request` event's level follows the request ([levels](../reference/logs.md#http-request)):
   - `info` for completed responses, 404s for missing objects and redirects included;
-  - `warn` for rejections; for requests that the client ended or a shutdown canceled, before or after the headers, such as a 504 recorded for a client that left during preparation or a 503 for a shutdown; and for transfers that `server.request_timeout` cut after the headers;
+  - `warn` for rejections; for requests that the client ended or a shutdown canceled, before or after the headers, such as a client that left during preparation (`status=0`) or a 503 for a shutdown; and for transfers that `server.request_timeout` cut after the headers;
   - `error` for origin failures and expired deadlines before the headers, a masked denial included, and for transfers that the origin ended.
 
   At `warn`, you keep failures but lose the access events of successful requests and the `info` lifecycle events, such as `startup`, `shutdown_started` and the recovery of the origin health check. At `error`, `log_events_dropped` reports are not written either.
@@ -131,7 +131,7 @@ A burst of masked denials usually means wrong credentials, a bucket policy that 
 | `log_events_dropped` | `warn` | Log lines were dropped. |
 | `http_server_error`, `admin_http_error` | `warn` | A request failed inside statica's handler (`error_class=handler_panic`). |
 
-A log that ends without `shutdown_complete` means that the process ended without a graceful shutdown, for example by SIGKILL, SIGHUP or a closed standard output ([signals](./deployment.md#signals)).
+A log that ends without `shutdown_complete` means that the process ended without a graceful shutdown, for example by SIGKILL or SIGHUP, or that standard output closed before the shutdown finished ([signals](./deployment.md#signals)).
 
 ## Dropped events
 
@@ -172,7 +172,7 @@ journalctl -u statica -o cat | grep 'event=http_request' | grep ' outcome=origin
 
 - **`status` alone hides failures.** A masked denial is a 404, and a cut download is a 200. Watch `outcome`, `error_class` and `termination_reason`.
 - **No access events for some requests.** Requests that Go's HTTP server refuses before statica sees them, such as headers larger than `server.max_header_bytes`, and requests to the admin listener, are not logged ([statuses from Go's HTTP server](../reference/http-responses.md#statuses-from-go-s-http-server)).
-- **The log reader must stay up.** When standard output is a pipe whose reader goes away, the next write ends statica ([signals](./deployment.md#signals)).
+- **The log reader must stay up.** When standard output is a pipe or socket whose reader goes away, statica keeps serving, and every later log line is dropped and counted in `statica_log_events_dropped_total` ([signals](./deployment.md#signals)).
 
 ## Related pages
 

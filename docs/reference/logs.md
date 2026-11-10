@@ -291,12 +291,12 @@ How statica selected the object, independently of the status. [Request flow](../
 
 ### `cache`
 
-The outcome of the memory cache lookup that decided the response. Absent with `cache.enabled: false`.
+The outcome of the memory cache lookup that decided the response. Absent with `cache.enabled: false`. A range request is decided on metadata: when its bytes then come through the memory cache, the field is the outcome of that body read, otherwise the outcome of the metadata read ([ranges in the memory cache](../architecture/memory-cache.md#ranges)).
 
 | Value | Meaning |
 | --- | --- |
 | `hit` | A fresh body served from memory. |
-| `metadata_hit` | A `HEAD` answered from memory. |
+| `metadata_hit` | A `HEAD` answered from memory, or a range request decided on metadata from memory: a 304, 412 or 416, or a 206 whose bytes came from the origin. |
 | `negative_hit` | A fresh negative entry: the object is missing, without an origin read. |
 | `miss` | An origin read for a missing or unusable entry, or its failure. |
 | `revalidated` | Stored bytes that the origin confirmed unchanged. |
@@ -305,7 +305,7 @@ The outcome of the memory cache lookup that decided the response. Absent with `c
 
 ### `cache_reason`
 
-Only with `cache=bypass`: `disabled`, `request_no_store`, `shutdown`, `fills_full`, `waiters_full`, `unknown_size`, `too_large`, `uncacheable` or `fill_budget`. The [metrics reference](./metrics.md#statica-cache-admissions-total) describes each one. The `cache` fields describe the lookup that selected the object, so a range read from the origin that follows it is not reflected: the bypass reason `range` appears only in the metric.
+Only with `cache=bypass`: `disabled`, `request_no_store`, `shutdown`, `fills_full`, `waiters_full`, `unknown_size`, `too_large`, `uncacheable` or `fill_budget`. The [metrics reference](./metrics.md#statica-cache-admissions-total) describes each one.
 
 ### `error_class`
 
@@ -313,7 +313,7 @@ Only with `cache=bypass`: `disabled`, `request_no_store`, `shutdown`, `fills_ful
 | --- | --- |
 | A rejection reason | For a rejected request: `request_capacity`, `malformed_host`, `unknown_host`, `unsupported_method`, `request_body`, `invalid_target`, `cors_preflight_denied`, `invalid_redirect_input` or `invalid_object_key`. See [`statica_http_rejected_requests_total`](./metrics.md#statica-http-rejected-requests-total). |
 | `origin_` and an origin error kind | For an origin failure: `origin_` followed by an [origin `result`](./metrics.md#origin) other than `success`, such as `origin_denied`, `origin_unavailable`, `origin_throttled`, `origin_timeout` or `origin_invalid_response`. |
-| `origin_inconsistent` | The object kept changing during a range read guarded by its entity tag (503). |
+| `origin_inconsistent` | The object kept changing while statica served a range request: its guarded range read, or the read of the whole object after its metadata, returned another revision twice (503). |
 | `origin_timeout` | Also whenever a deadline, not the origin, ended the request before the headers (504). |
 | `origin_canceled` | A shutdown canceled the request before the headers. |
 | `origin_error` | Any other failure before the headers. |

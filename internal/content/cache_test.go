@@ -303,7 +303,6 @@ func TestCachedHandlerMatchesUncached(t *testing.T) {
 		memory               bool // the warm response presents a snapshot's age
 		local                bool // with the capabilities off, the cached handler slices memory
 		warmCalls            int  // origin reads of the warm request
-		warmCallsOff         int  // with the capabilities off, when different
 		realDate             bool // a past origin Date makes Age follow the real clock too
 	}{
 		{name: "get", method: "GET", target: "/file.txt", status: 200, memory: true},
@@ -345,7 +344,7 @@ func TestCachedHandlerMatchesUncached(t *testing.T) {
 		{name: "denied not_found", method: "GET", target: "/denied.txt", status: 404, warmCalls: 1},
 		{name: "denied bad_gateway", method: "GET", target: "/denied.txt", config: badGateway, status: 502, warmCalls: 1},
 		{name: "large object", method: "GET", target: "/big.bin", status: 200, warmCalls: 1},
-		{name: "large object range", method: "GET", target: "/big.bin", header: ranged("bytes=10-19"), status: 206, statusOff: 200, warmCalls: 2, warmCallsOff: 1},
+		{name: "large object range", method: "GET", target: "/big.bin", header: ranged("bytes=10-19"), status: 206, statusOff: 200, warmCalls: 1},
 	} {
 		for _, capable := range []bool{true, false} {
 			t.Run(tc.name+" capabilities "+strconvBool(capable), func(t *testing.T) {
@@ -367,9 +366,6 @@ func TestCachedHandlerMatchesUncached(t *testing.T) {
 				}
 				uncached := serve(boundary(t, cfg, origin), tc.method, "http://example.org"+tc.target, tc.header)
 				want, status, warmCalls := uncached, tc.status, tc.warmCalls
-				if !capable && tc.warmCallsOff != 0 {
-					warmCalls = tc.warmCallsOff
-				}
 				if !capable && tc.statusOff != 0 {
 					status = tc.statusOff
 				}
@@ -616,8 +612,9 @@ func TestCachedRangesFromMemory(t *testing.T) {
 				t.Fatalf("range %d: %d %q %v %+v", i, w.status, w.body, w.header, o)
 			}
 		}
-		// Neither request needs a ranged origin read.
-		if calls := origin.take(); strings.Join(calls, "|") != "GET file.txt" {
+		// The cold request reads the metadata, then fills the small object
+		// and slices it: neither request needs a ranged origin read.
+		if calls := origin.take(); strings.Join(calls, "|") != "HEAD file.txt|GET file.txt" {
 			t.Fatalf("calls %q", calls)
 		}
 	})
@@ -738,7 +735,7 @@ func TestCachedObservation(t *testing.T) {
 		{"GET", "/file.txt", http.Header{"If-None-Match": {`"f1"`}}, 304, cache.OutcomeHit, "", 0, "file.txt"},
 		{"GET", "/file.txt", http.Header{"If-Match": {`"x"`}}, 412, cache.OutcomeHit, "", 0, "file.txt"},
 		{"GET", "/file.txt", http.Header{"Range": {"bytes=2-5"}}, 206, cache.OutcomeHit, "", 4, "file.txt"},
-		{"GET", "/file.txt", http.Header{"Range": {"bytes=50-"}}, 416, cache.OutcomeHit, "", 0, ""},
+		{"GET", "/file.txt", http.Header{"Range": {"bytes=50-"}}, 416, cache.OutcomeMetadataHit, "", 0, ""}, // decided on metadata alone
 		{"GET", "/file.txt", http.Header{"Cache-Control": {"no-store"}}, 200, cache.OutcomeBypass, cache.ReasonRequestNoStore, 0, "file.txt"},
 		{"GET", "/missing.txt", nil, 404, cache.OutcomeMiss, "", 0, ""},
 		{"GET", "/missing.txt", nil, 404, cache.OutcomeNegativeHit, "", 0, ""},

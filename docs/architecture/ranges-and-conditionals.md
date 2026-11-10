@@ -4,7 +4,7 @@ Conditional request headers and single byte ranges are evaluated by statica itse
 
 ## Order of evaluation
 
-1. **Selection.** Resolution picks the object, including the index object, the SPA shell or a precompressed variant.
+1. **Selection.** Resolution picks the object, including the index object, the SPA shell or a precompressed variant. For a GET with one valid byte range, it reads only metadata when the provider can serve ranges ([Selection on metadata](#selection-on-metadata)).
 2. **Preconditions.** statica evaluates them only when the selection is a 200 OK object. A custom 404 page, a redirect or a generated response never becomes a 304 or a 412.
 3. **Range.** statica considers `Range` only for a GET whose status is still 200 after the preconditions. A HEAD request ignores `Range` and receives the headers of the complete representation.
 
@@ -52,33 +52,46 @@ A weak ETag, an unparseable value or several `If-Range` fields never match. When
 
 ## Where a range comes from
 
-The diagram shows what happens to a GET whose selection is a 200 object and that carries a `Range` header, once the preconditions have passed. It assumes a valid range and a matching `If-Range`, if any; otherwise the answer is 416 or the complete 200 described above.
+The diagram shows what happens to a GET that carries one valid byte range when `s3.features.range_reads` and `s3.features.conditional_reads` are both enabled. With either one disabled, resolution reads the object as for any GET, and only a body held in memory answers the range ([Effect of `s3.features`](#effect-of-s3-features)).
 
 ```mermaid
 flowchart TD
   accTitle: Where a range is served from
-  accDescr: A body held complete in memory with a strong ETag is sliced locally into a 206. A body that streams gets a range only when range_reads and conditional_reads are enabled and the object has a known length and a strong ETag; statica then makes a ranged GET guarded by If-Match and answers 206 with the ranged response's metadata. If the object changed, statica restarts resolution once and answers 503 if it changes again. In every other case it ignores Range and returns the full 200.
-  A["GET selected a 200 object, Range present"] --> B{"Complete memory snapshot with a strong ETag?"}
-  B -->|yes| L["Slice the snapshot: 206"]
-  B -->|no| C{"range_reads and conditional_reads on, known length, strong ETag?"}
-  C -->|no| F["Ignore Range: full 200"]
-  C -->|yes| G["Ranged GET guarded by If-Match"]
-  G -->|"same revision"| P["206 with the ranged response's metadata"]
-  G -->|"changed"| H{"First change?"}
-  H -->|yes| R["Restart resolution once"]
-  R --> A
-  H -->|no| X["503, error_class=origin_inconsistent"]
+  accDescr: statica first selects the object on its metadata, read from the memory cache or with a HEAD, without its body. Failed preconditions are answered with 304 or 412 from that metadata alone. When the range does not apply, because If-Range does not match, the ETag is not strong or the length is unknown, statica reads the whole object and answers 200. An unsatisfiable range that applies gets 416, again without a body read. Otherwise, an object the memory cache can hold is read through the cache and the range is sliced from the body in memory; when that body streams instead, or the object cannot be held in memory, statica makes a ranged GET guarded by If-Match and answers 206.
+  A["GET with one valid byte range"] --> B["Select on metadata: memory cache or HEAD"]
+  B --> C{"Preconditions pass?"}
+  C -->|no| N["304 or 412, no body read"]
+  C -->|yes| D{"If-Range matches, strong ETag, known length?"}
+  D -->|no| F["GET the whole object: 200"]
+  D -->|yes| S{"Range satisfiable?"}
+  S -->|no| U["416, no body read"]
+  S -->|yes| E{"Memory cache usable and object within max_object_bytes?"}
+  E -->|yes| K["GET through the memory cache"]
+  K -->|"body in memory"| L["Slice it: 206"]
+  K -->|"body streams"| G["Ranged GET guarded by If-Match: 206"]
+  E -->|no| G
 ```
+
+### Selection on metadata
+
+When `s3.features.range_reads` and `s3.features.conditional_reads` are both enabled, a GET whose `Range` header holds one range in the grammar above is resolved as a HEAD request is: statica reads the metadata of each candidate, from the memory cache or with a `HeadObject`, and no body. Then:
+
+1. a failing precondition gets its 304 or 412, without a body read from the origin;
+2. a range that does not apply (`If-Range` does not match, the ETag is weak or missing, or the length is unknown) gets the whole object with a GET and the complete 200, even when the range could not be satisfied;
+3. an unsatisfiable range that applies gets its 416, without a body read from the origin;
+4. a satisfiable range that applies comes from a complete memory snapshot or from the origin, as the next sections describe.
+
+S3 answers a `HeadObject` for a missing key with a 404 that cannot confirm the absence, so each missing candidate (the exact key, the index key, a precompressed sibling or the SPA shell) costs a `HeadObject` and then a `GetObject` that confirms it, as for a HEAD request. With the memory cache, that confirmation stores a negative entry that later requests reuse ([negative entries](./memory-cache.md#negative-entries)). The custom 404 page never answers a range, so statica reads it with a GET directly.
 
 ### From a complete memory snapshot
 
-When the selected body is a complete copy in memory, statica slices it. That is the case for a fresh entry, an entry the origin has confirmed on revalidation or that is served stale, and an object that this request itself read into memory because it is eligible for the memory cache (for example, within `cache.max_object_bytes`). The snapshot holds one revision's metadata and bytes together, and stays in place while the response uses it, so no guard is needed, and this works whatever the `s3.features.range_reads` and `s3.features.conditional_reads` settings are. The object still needs a strong ETag, as for ranges from the origin.
+When the body is a complete copy in memory, statica slices it. That is the case for a fresh entry, an entry the origin has confirmed on revalidation or that is served stale, and an object that this request itself read into memory because it is eligible for the memory cache (for example, within `cache.max_object_bytes`). The snapshot holds one revision's metadata and bytes together, and stays in place while the response uses it, so no guard is needed, and this works whatever the `s3.features.range_reads` and `s3.features.conditional_reads` settings are. The object still needs a strong ETag, as for ranges from the origin.
 
-A cold range request for such an object reads the whole object from the origin first, then slices it.
+With both settings enabled, statica reads the body through the memory cache only for an object within `cache.max_object_bytes` whose metadata lookup did not bypass the cache. A cold range request for such an object reads its metadata, then the whole object through a shared fill, then slices it. If the fill cannot hold the body, because a fill limit or the fill budget is reached, statica closes that body unread and reads the range from the origin instead.
 
 ### From the origin
 
-When the body streams from the origin instead (the object exceeds `cache.max_object_bytes`, has no known length, may not be stored, finds the fill budget full, or the memory cache is disabled or bypassed for the request), statica serves the range from the origin only if:
+When the body cannot come from memory (the object exceeds `cache.max_object_bytes`, has no known length, may not be stored, finds the fill limits reached, or the memory cache is disabled or bypassed for the request), statica serves the range from the origin only if:
 
 - `s3.features.range_reads` and `s3.features.conditional_reads` are both enabled;
 - the object's length is known;
@@ -86,24 +99,23 @@ When the body streams from the origin instead (the object exceeds `cache.max_obj
 
 Then statica:
 
-1. closes the body of the GET that selected the object, after its headers;
-2. sends a second GET with the range and `If-Match: <selected ETag>`;
-3. checks that the answer covers exactly the requested bytes with the same ETag, and fails with 502 Bad Gateway if it does not;
-4. checks that the encoding is unchanged and that `If-Range`, if present, still matches;
-5. answers 206 with the metadata of the ranged response, which can carry metadata changes that did not alter the ETag, after evaluating the preconditions again against it.
+1. sends a GET with the range and `If-Match: <selected ETag>`;
+2. checks that the answer covers exactly the requested bytes with the same ETag, and fails with 502 Bad Gateway if it does not;
+3. checks that the encoding is unchanged and that `If-Range`, if present, still matches;
+4. answers 206 with the metadata of the ranged response, which can carry metadata changes that did not alter the ETag, after evaluating the preconditions again against it.
 
-If the object changed between the two reads (the origin rejects `If-Match`, the encoding differs, or `If-Range` no longer matches), statica restarts the whole resolution once. If the object changes again, the answer is 503 Service Unavailable, logged with `error_class=origin_inconsistent`.
+If the object changed after its selection (the origin rejects `If-Match`, the encoding differs, `If-Range` no longer matches, or the whole object read for a 200 or a slice has another ETag or encoding than the selected metadata), statica restarts the whole resolution once. That second resolution revalidates every memory cache lookup with the origin, as a request with `Cache-Control: no-cache` would, so metadata held in memory cannot select the replaced revision again. If the object changes again, the answer is 503 Service Unavailable, logged with `error_class=origin_inconsistent`.
 
 When any condition is missing, statica ignores `Range` and streams the complete object with 200. It never reads a large object into memory to make a range possible.
 
-A range from the origin costs one more GET than the complete response: the GET that selects the object, then the guarded ranged GET.
+A range from the origin costs a `HeadObject` and the guarded ranged `GetObject`. While the memory cache holds the object's metadata, it costs the ranged `GetObject` alone, and the access log records `cache=metadata_hit`.
 
 ### Effect of `s3.features`
 
-| `range_reads` and `conditional_reads` | Body in memory | Body that streams | `Accept-Ranges: bytes` |
-| --- | --- | --- | --- |
-| both `true` | 206 from the snapshot | 206 through a guarded ranged GET | sent, for objects with a known length and a strong ETag |
-| either `false` | 206 from the snapshot | complete 200 | never sent |
+| `range_reads` and `conditional_reads` | Selection | Body in memory | Body that streams | `Accept-Ranges: bytes` |
+| --- | --- | --- | --- | --- |
+| both `true` | on metadata | 206 from the snapshot | 206 through a guarded ranged GET | sent, for objects with a known length and a strong ETag |
+| either `false` | with a GET, as without `Range` | 206 from the snapshot | complete 200 | never sent |
 
 With `s3.features.conditional_reads: false`, the memory cache also revalidates expired entries by reading the whole object again instead of sending a conditional request.
 

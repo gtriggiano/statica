@@ -81,7 +81,7 @@ s3:
   prefix: releases/2026-11-08
 ```
 
-- [`s3.region`](../reference/configuration.md#s3-region) is the region used to sign requests. When statica starts, it must contain only letters, digits, `-` and `_`, although `config validate` accepts a wider set.
+- [`s3.region`](../reference/configuration.md#s3-region) is the region used to sign requests. It must contain only ASCII letters, digits, `-` and `_`.
 - [`s3.path_style: true`](../reference/configuration.md#s3-path-style) sends `https://objects.example.net/example-site/<key>` instead of `https://example-site.objects.example.net/<key>`. Use it when the service does not resolve bucket names as subdomains.
 - [`s3.allow_http: true`](../reference/configuration.md#s3-allow-http) is required for an `http://` endpoint. Requests and object data then cross the network unencrypted: use it only for a server on the same machine or a trusted network.
 

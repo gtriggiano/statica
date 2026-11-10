@@ -143,7 +143,7 @@ func noRedirect(*http.Request, []*http.Request) error { return http.ErrUseLastRe
 // the TLS handshake each, takes at most limit, the response header timeout:
 // an unreachable origin then fails like a slow one.
 func privateTransport(limit time.Duration) *http.Transport {
-	return &http.Transport{Proxy: http.ProxyFromEnvironment, DialContext: (&net.Dialer{Timeout: min(30*time.Second, limit), KeepAlive: 30 * time.Second}).DialContext, ForceAttemptHTTP2: true, MaxIdleConns: 100, IdleConnTimeout: 90 * time.Second, TLSHandshakeTimeout: min(10*time.Second, limit), ExpectContinueTimeout: time.Second, MaxResponseHeaderBytes: 1 << 20}
+	return &http.Transport{Proxy: http.ProxyFromEnvironment, DialContext: (&net.Dialer{Timeout: min(30*time.Second, limit), KeepAlive: 30 * time.Second}).DialContext, ForceAttemptHTTP2: true, MaxIdleConns: 100, MaxIdleConnsPerHost: 100, IdleConnTimeout: 90 * time.Second, TLSHandshakeTimeout: min(10*time.Second, limit), ExpectContinueTimeout: time.Second, MaxResponseHeaderBytes: 1 << 20}
 }
 func (c *Client) Region() string { return c.region }
 func (c *Client) Capabilities() storage.Capabilities {

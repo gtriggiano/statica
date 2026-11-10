@@ -22,7 +22,7 @@ This page lists the status codes that the public listener sends and when, the he
 | 416 Range Not Satisfiable | A valid byte range that the object cannot satisfy, such as one that starts beyond its end. Carries `Content-Range: bytes */<size>`. |
 | 421 Misdirected Request | [`hosts`](./configuration.md#hosts) is set and the hostname is not listed. |
 | 502 Bad Gateway | The origin failed before the response headers: for example it was unreachable, answered with a server error or a malformed response, or rejected the bucket or the endpoint. Also an origin denial with `errors.access_denied: bad_gateway`. |
-| 503 Service Unavailable | Every request slot is in use (`server.max_concurrent_requests`); the origin throttled the read; a shutdown canceled the request before its headers; or the object kept changing during a range read from the origin. |
+| 503 Service Unavailable | Every request slot is in use (`server.max_concurrent_requests`); the origin throttled the read; a shutdown canceled the request before its headers; or the object kept changing while statica served a range request. |
 | 504 Gateway Timeout | `server.response_header_timeout` or `server.request_timeout` expired before the response headers, or an origin read timed out before them. See [Timeouts and long downloads](../architecture/timeouts.md#before-the-headers). |
 
 A client that goes away before the response headers receives nothing. statica records the request with status `0`, `outcome=incomplete` and the [`termination_reason`](./logs.md#termination-reason) `disconnect`, whatever response it was preparing.

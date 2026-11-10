@@ -50,7 +50,7 @@ var (
 	cacheWaitersDesc      = newDesc("cache_waiters", "Requests waiting on a shared fill.")
 	cacheAdmissionsDesc   = newDesc("cache_admissions_total",
 		"Cache admission outcomes. Store results are result=admitted|replaced|refreshed|too_large|no_space|invalid|conflict with reason=\"none\"; "+
-			"request bypasses are result=\"bypass\" with reason=disabled|request_no_store|shutdown|fills_full|waiters_full|unknown_size|too_large|uncacheable|fill_budget|range.",
+			"request bypasses are result=\"bypass\" with reason=disabled|request_no_store|shutdown|fills_full|waiters_full|unknown_size|too_large|uncacheable|fill_budget.",
 		"result", "reason")
 	cacheEvictionsDesc     = newDesc("cache_evictions_total", "Capacity evictions by entry kind (body, metadata, negative).", "kind")
 	cacheExpirationsDesc   = newDesc("cache_expirations_total", "Entry versions a lookup first found past their positive lifetime, by entry kind.", "kind")

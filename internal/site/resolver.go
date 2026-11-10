@@ -25,15 +25,21 @@ const (
 	ResolutionNotFound Resolution = "not_found"
 )
 
+// Request is one resolution. MetadataOnly makes a GET read the candidates
+// it can answer with a 200 as a HEAD does, without a body: the caller sets it
+// for a range request and reads the body it needs itself. A custom 404 page,
+// which never answers a range, is still read with its body.
 type Request struct {
-	Target Target
-	Method string
-	Header http.Header
+	Target       Target
+	Method       string
+	Header       http.Header
+	MetadataOnly bool
 }
 
 // Selection owns Body, if nonnil. The caller must close it. Metadata and Body
 // come from the same origin snapshot. A built-in 404 has an empty Key. A redirect
-// has a Location and no Body. ObjectPath identifies the actual stored variant;
+// has a Location and no Body; so has the 200 of a HEAD or of a GET with
+// Request.MetadataOnly. ObjectPath identifies the actual stored variant;
 // LogicalPath identifies the resource before its coding suffix.
 type Selection struct {
 	Key, ObjectPath, LogicalPath, Coding, ContentType string
@@ -134,6 +140,7 @@ type resolvePlan struct {
 	missing     map[string]bool
 	logical     map[string]bool
 	keys        map[string]bool
+	head        bool // read candidates without a body
 }
 
 func (r *Resolver) Resolve(ctx context.Context, req Request) (*Selection, error) {
@@ -146,7 +153,7 @@ func (r *Resolver) Resolve(ctx context.Context, req Request) (*Selection, error)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	p := &resolvePlan{resolver: r, request: req, preferences: parseEncodings(req.Header), missing: map[string]bool{}, logical: map[string]bool{}, keys: map[string]bool{}}
+	p := &resolvePlan{resolver: r, request: req, preferences: parseEncodings(req.Header), missing: map[string]bool{}, logical: map[string]bool{}, keys: map[string]bool{}, head: req.Method == http.MethodHead || req.MetadataOnly}
 	// Vary: Accept is needed only once ordinary resolution has missed and this
 	// route could use the shell for a different Accept value.
 	varyAccept := false
@@ -219,6 +226,7 @@ func (r *Resolver) Resolve(ctx context.Context, req Request) (*Selection, error)
 		}
 	}
 	if r.notFound != "" {
+		p.head = req.Method == http.MethodHead
 		object, err := r.configuredObject(r.notFound)
 		if err != nil {
 			return nil, err
@@ -381,7 +389,7 @@ func (p *resolvePlan) read(ctx context.Context, object Object) (*Selection, erro
 	var metadata storage.Metadata
 	var body io.ReadCloser
 	var err error
-	if p.request.Method == http.MethodHead {
+	if p.head {
 		metadata, err = p.resolver.reader.Head(ctx, object.Key)
 		if storage.IsKind(err, storage.AmbiguousNotFound) {
 			var result *storage.Object

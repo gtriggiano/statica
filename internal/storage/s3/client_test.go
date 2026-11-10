@@ -755,6 +755,9 @@ func TestConnectionSetupBoundedByResponseHeaderTimeout(t *testing.T) {
 		if transport.TLSHandshakeTimeout != cfg.ResponseHeaderTimeout {
 			t.Fatalf("TLS handshake timeout %v", transport.TLSHandshakeTimeout)
 		}
+		if transport.MaxIdleConns != 100 || transport.MaxIdleConnsPerHost != 100 {
+			t.Fatalf("idle pool limits: total=%d perHost=%d", transport.MaxIdleConns, transport.MaxIdleConnsPerHost)
+		}
 	}
 	started := time.Now()
 	// Like a missing response, a stalled handshake is an origin timeout.

@@ -14,7 +14,7 @@ statica has no measured capacity figures and no recommended sizes: start from th
 The memory cache keeps one entry per object key, shared by every hostname and client:
 
 - **body entries**: the complete bytes and metadata of an object, which answer `GET`, `HEAD` and range requests;
-- **metadata entries**: the result of a `HEAD` that read the origin, which answer `HEAD` requests only;
+- **metadata entries**: the result of a metadata read from the origin, for a `HEAD` or a range request, which never supply a body;
 - **negative entries**: a confirmed missing object, which answer requests for it as missing without an origin read.
 
 Every entry is charged 640 bytes, plus the length of its key and its metadata, plus its body ([limits and accounting](../architecture/memory-cache.md#limits-and-accounting)). Objects larger than the per-object limit, or of unknown size, are streamed from the origin on every request and never stored.
@@ -197,7 +197,6 @@ sum by (reason) (rate(statica_cache_admissions_total{result="bypass"}[5m]))
 | `waiters_full` | One fill already has `max_waiters_per_key` requests. | `max_waiters_per_key`. |
 | `disabled`, `request_no_store` | A rule disables the cache, or the request carries `Cache-Control: no-store`. | Intended behavior. |
 | `shutdown` | statica is shutting down and starts no new fills. | Expected during a shutdown. |
-| `range` | A range or `If-Match` request found no fresh body in memory and read the origin. | Expected for objects that stream. |
 
 ### Hit ratios
 
@@ -217,7 +216,7 @@ sum(rate(statica_cache_requests_total{outcome="hit"}[5m]))
 sum(rate(statica_cache_requests_total{outcome!~"metadata_hit|negative_hit"}[5m]))
 ```
 
-`hit` counts only `GET` requests served from a fresh body; a `HEAD` answered from memory is a `metadata_hit`. The denominator still contains `HEAD` requests that read the origin, which count as `miss`, so read this ratio as an approximation. `coalesced` counts requests that joined another request's fill: they waited for the origin but did not read it themselves.
+`hit` counts only `GET` requests served from a fresh body; a `HEAD` answered from memory is a `metadata_hit`, as is a range request whose metadata came from memory and whose bytes came from the origin. The denominator still contains `HEAD` and range requests whose metadata read reached the origin, which count as `miss`, so read this ratio as an approximation. `coalesced` counts requests that joined another request's fill: they waited for the origin but did not read it themselves.
 
 A byte hit ratio, the share of body bytes sent from memory:
 

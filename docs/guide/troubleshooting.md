@@ -121,7 +121,7 @@ To tell cause 3 from cause 1, request a URL whose object certainly exists, such 
 | `error_class=request_capacity`, with `authority` instead of `host` | Every one of `server.max_concurrent_requests` request slots was in use. The check runs before any other, so the request has no host yet. |
 | `error_class=origin_throttled` | The origin kept throttling the read after `s3.max_attempts` attempts. |
 | `termination_reason=shutdown`, at `warn` | A shutdown canceled the request before its headers. |
-| `error_class=origin_inconsistent` | The object kept changing during a range read from the origin. |
+| `error_class=origin_inconsistent` | The object kept changing while statica served a range request. |
 
 **Confirm.** `statica_http_rejected_requests_total{reason="request_capacity"}` counts capacity rejections, and `statica_http_requests_in_flight` shows how many slots are in use. Long downloads hold their slot for their whole duration ([request capacity](../architecture/request-flow.md#request-capacity)).
 
@@ -257,7 +257,7 @@ A served variant carries `Content-Encoding: br` or `gzip`, and the access event'
 
 - **Level and switches.** `observability.log_level` above `info` drops successful requests' access events and `info` lifecycle events, and `observability.access_log: false` drops all access events.
 - **Drops.** A `log_events_dropped` event and the metric `statica_log_events_dropped_total` count lines that statica could not write ([dropped events](./logs.md#dropped-events)).
-- **Abrupt ends.** A second stop signal gives the logs 250 ms. SIGKILL, SIGHUP and a closed standard output end the process without flushing them.
+- **Abrupt ends.** A second stop signal gives the logs 250 ms. SIGKILL and SIGHUP end the process without flushing them, and a closed standard output drops every line written while no reader is attached.
 - **Never logged.** Requests that Go's HTTP server refuses before statica sees them, such as headers larger than `server.max_header_bytes`, and requests to the admin listener.
 
 ## Related pages

@@ -4,7 +4,7 @@ When the origin answers 403 Forbidden, statica treats the answer as a failure, n
 
 ## What counts as a denial
 
-Every origin response with status 403 to a GET or HEAD is a denial, whatever error code the provider puts in it. A denial can answer any key statica reads for a request: the exact key, the index key, a precompressed sibling, the SPA shell, the custom 404 page or a guarded range read.
+Every origin response with status 403 to a GET or HEAD is a denial, whatever error code the provider puts in it. A denial can answer any key statica reads for a request: the exact key, the index key, a precompressed sibling, the SPA shell, the custom 404 page, the metadata or the whole object a range request reads, or a guarded range read.
 
 S3 providers also use 403 for requests they cannot authenticate. AWS, for example, answers an unknown access key or a signature mismatch with 403. As a result, wrong credentials, a bucket policy that denies the read and a missing `s3:ListBucket` permission (see [below](#aws-without-s3-listbucket)) look the same: all are logged with `error_class=origin_denied` and counted with `result="denied"`. With the default `errors.access_denied: not_found`, wrong credentials make every URL that reads the bucket answer 404, and `config check-origin` reports `access denied`.
 
@@ -33,7 +33,7 @@ A 403 says that the origin refused the read, not that the object does not exist.
 
 - **No fallbacks.** Resolution stops at the denied key. No lookup of the index object, the SPA shell or the custom 404 page follows, and a denied precompressed sibling does not fall back to the canonical object.
 - **No negative entry.** The memory cache records nothing for a denied key, so the next request asks the origin again, and restored access takes effect at once.
-- **The entry is removed.** When the 403 answers a shared fill, a revalidation or a HEAD request's metadata read, statica also removes the entry it held for the key, whatever its kind.
+- **The entry is removed.** When the 403 answers a shared fill, a revalidation or the metadata read of a HEAD or range request, statica also removes the entry it held for the key, whatever its kind.
 - **No stale service.** Once the origin answers 403 for a key, statica never serves a stored copy of it: `cache.stale_if_error` covers origin timeouts, throttling, transport errors and unclassified provider errors only.
 
 ::: warning A revoked permission takes effect at expiry

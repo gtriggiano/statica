@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -21,40 +20,30 @@ import (
 //     Object whose Body is a *Body over the pinned snapshot; a stream returns
 //     the origin Object itself. Typed errors pass through, so a negative hit
 //     is the NotFound that confirms absence.
-//   - Get with a Range and/or an If-Match is Cache.Range. A fresh body in
-//     memory answers it exactly as the origin would: a mismatching If-Match
-//     is a Precondition error, a satisfiable "bytes=" range a partial Object
-//     whose Size is the range length and whose ContentRange is the origin's,
-//     an unsatisfiable one an InvalidRange carrying the complete size. If-Match
-//     is compared strongly and must be "*" or a single entity-tag, which is all
-//     statica sends. A range the decorator cannot parse, and every miss, is
-//     read from the origin directly with the same options.
-//   - Get with an If-None-Match is rejected as Unsupported: the cache owns
-//     revalidation and no caller sends one, so it never silently bypasses.
+//   - Get with any ReadOptions is rejected as Unsupported: the cache owns
+//     revalidation, and partial reads after a streamed selection go to the
+//     origin directly without a second cache lookup.
 //   - Head is Cache.Head. A caller disambiguating an AmbiguousNotFound with a
 //     plain Get, as the site resolver does, makes an ordinary Get: a confirmed
 //     absence becomes a negative entry that later HEADs reuse, and an object
 //     that does exist fills like any GET miss, within max_object_bytes.
 //
 // The request directives and the per-request record of lookups travel in the
-// context; see WithRequest. Metadata served from memory, by Get, Head or a
-// range, states the snapshot's RFC 9111 current age in Age and RawAge, so
-// neither a hit nor stale service advertises a renewed lifetime; streams and
-// origin metadata are returned as the origin sent them. The response layer
-// then sends the larger of that age and the apparent age since the origin
-// Date, so a response read from the origin can carry an Age too.
+// context; see WithRequest. Metadata served from memory, by Get or Head,
+// states the snapshot's RFC 9111 current age in Age and RawAge, so neither a
+// hit nor stale service advertises a renewed lifetime; streams and origin
+// metadata are returned as the origin sent them. The response layer then sends
+// the larger of that age and the apparent age since the origin Date, so a
+// response read from the origin can carry an Age too.
 func NewReader(c *Cache) storage.Reader { return &reader{c: c} }
 
 type reader struct{ c *Cache }
 
 func (r *reader) Get(ctx context.Context, key string, opts storage.ReadOptions) (*storage.Object, error) {
-	s := scopeOf(ctx)
-	switch {
-	case opts.IfNoneMatch != "":
+	if opts != (storage.ReadOptions{}) {
 		return nil, &storage.Error{Kind: storage.Unsupported, Size: -1}
-	case opts.Range != "" || opts.IfMatch != "":
-		return r.partial(ctx, s, key, opts)
 	}
+	s := scopeOf(ctx)
 	l, err := r.c.Get(ctx, key, s.request())
 	s.record(key, l)
 	if err != nil {
@@ -69,49 +58,6 @@ func (r *reader) Get(ctx context.Context, key string, opts storage.ReadOptions) 
 	}
 	l.Release() // unreachable: a successful Get serves a handle or a stream
 	return nil, &storage.Error{Kind: storage.InvalidResponse, Size: -1}
-}
-
-// partial serves a Range and/or If-Match read. A hit whose range the
-// decorator cannot parse is read from the origin instead.
-func (r *reader) partial(ctx context.Context, s *scope, key string, opts storage.ReadOptions) (*storage.Object, error) {
-	l, err := r.c.Range(ctx, key, s.request(), opts)
-	var start, end int64
-	valid, satisfiable := true, true
-	if err == nil && l.Handle() != nil && opts.Range != "" {
-		if start, end, valid, satisfiable = rangeOf(opts.Range, int64(len(l.Handle().Snapshot().Body))); !valid {
-			l.Release()
-			l, err = r.c.direct(ctx, key, opts, ReasonRange)
-		}
-	}
-	s.record(key, l)
-	if err != nil {
-		l.Release()
-		return nil, err
-	}
-	h := l.Handle()
-	if h == nil {
-		if obj := l.TakeObject(); obj != nil {
-			return obj, nil
-		}
-		l.Release() // unreachable: a successful origin read returns an Object
-		return nil, &storage.Error{Kind: storage.InvalidResponse, Size: -1}
-	}
-	data := h.Snapshot().Body
-	m := present(l, r.c.now())
-	size := int64(len(data))
-	switch {
-	case opts.IfMatch != "" && opts.IfMatch != "*" && !(httpcache.StrongETag(m.ETag) && opts.IfMatch == m.ETag):
-		l.Release()
-		return nil, &storage.Error{Kind: storage.Precondition, Size: -1}
-	case !satisfiable:
-		l.Release()
-		return nil, &storage.Error{Kind: storage.InvalidRange, Size: size}
-	case opts.Range != "":
-		data = data[start : end+1]
-		m.Size = end - start + 1
-		m.ContentRange = "bytes " + strconv.FormatInt(start, 10) + "-" + strconv.FormatInt(end, 10) + "/" + strconv.FormatInt(size, 10)
-	}
-	return &storage.Object{Metadata: m, Body: newBody(l, data)}, nil
 }
 
 func (r *reader) Head(ctx context.Context, key string) (storage.Metadata, error) {
@@ -145,59 +91,10 @@ func present(l *Lookup, now time.Time) storage.Metadata {
 	return m
 }
 
-// rangeOf resolves a single "bytes=" range against size as the origin does:
-// "a-b" with a <= b, "a-" or "-n", in ASCII digits; anything else is not
-// valid. The end is clamped to the last byte; a start at or past size, a
-// zero suffix or an empty object is unsatisfiable.
-func rangeOf(spec string, size int64) (start, end int64, valid, satisfiable bool) {
-	spec, found := strings.CutPrefix(spec, "bytes=")
-	a, b, dash := strings.Cut(spec, "-")
-	if !found || !dash || a == "" && b == "" {
-		return 0, 0, false, false
-	}
-	if a == "" {
-		n, ok := digits(b)
-		if !ok {
-			return 0, 0, false, false
-		}
-		if n == 0 || size == 0 {
-			return 0, 0, true, false
-		}
-		return max(size-n, 0), size - 1, true, true
-	}
-	start, ok := digits(a)
-	if !ok {
-		return 0, 0, false, false
-	}
-	end = size - 1
-	if b != "" {
-		if end, ok = digits(b); !ok || end < start {
-			return 0, 0, false, false
-		}
-	}
-	if start >= size {
-		return 0, 0, true, false
-	}
-	return start, min(end, size-1), true, true
-}
-
-func digits(s string) (int64, bool) {
-	if s == "" {
-		return 0, false
-	}
-	for i := 0; i < len(s); i++ {
-		if s[i] < '0' || s[i] > '9' {
-			return 0, false
-		}
-	}
-	n, err := strconv.ParseInt(s, 10, 64)
-	return n, err == nil
-}
-
 var errBodyClosed = &storage.Error{Kind: storage.Canceled, Size: -1}
 
 // Body is the Body of an Object a Reader serves from memory: bytes of one
-// complete snapshot, or a slice of them for a range, pinned until Close.
+// complete snapshot, pinned until Close.
 // Its type is how a caller tells a body read from memory apart from an
 // origin stream. Read and Close are safe for concurrent use, so a request's
 // cancellation may close it during a read; Close is idempotent, releases the
