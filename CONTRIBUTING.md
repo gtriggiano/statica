@@ -8,7 +8,7 @@ A change in behavior comes with tests that cover it and with the documentation u
 
 ## Requirements
 
-- **Go 1.27.3**, as declared in `go.mod`. An installed Go 1.21 or later downloads this toolchain automatically when it has network access, unless `GOTOOLCHAIN=local` is set.
+- **Go 1.27.4**, as declared in `go.mod`. An installed Go 1.21 or later downloads this toolchain automatically when it has network access, unless `GOTOOLCHAIN=local` is set.
 - **A C compiler on Linux and Windows.** `make check` runs the tests with the race detector, which needs cgo there. On macOS it does not.
 - **Make and Git.** The Makefile drives every check. `make fmt` and `make check` list the Go sources with Git, so run them in a Git clone: outside a Git work tree, `make fmt` and `make fmt-check` (part of `make check`) fail with `not inside a Git work tree`.
 - **Node.js 24 and npm** for the documentation (`docs/.node-version`).

@@ -475,7 +475,7 @@ Log lines that statica dropped instead of writing them: the bounded output queue
 Always `1`. The labels identify the binary, with the same values as [`statica version`](./cli.md#statica-version): `dev` and `unknown` when the version and revision were not set at build time.
 
 ```text
-statica_build_info{go_version="go1.27.3",revision="unknown",version="dev"} 1
+statica_build_info{go_version="go1.27.4",revision="unknown",version="dev"} 1
 ```
 
 ## Go and process metrics

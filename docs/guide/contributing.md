@@ -9,7 +9,7 @@
 
 ## Build and check
 
-You need Go 1.27.3 or later, Git and Make (`make fmt` and `make check` list the Go files with `git ls-files` and fail outside a Git work tree), and for the documentation Node.js 24 and Google Chrome or Chromium.
+You need Go 1.27.4 or later, Git and Make (`make fmt` and `make check` list the Go files with `git ls-files` and fail outside a Git work tree), and for the documentation Node.js 24 and Google Chrome or Chromium.
 
 ```sh
 make check         # Go formatting, modules, vet, tests and build
