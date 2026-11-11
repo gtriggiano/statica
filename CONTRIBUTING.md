@@ -129,7 +129,7 @@ Pull requests are merged with squash merge only: each one becomes a single commi
 <type>(<optional scope>)<optional !>: <description>
 ```
 
-The **PR title** check rejects any other title and any type not in this table, and the pull request cannot be merged until it passes.
+The **PR title** check rejects any other title, any type not in this table and a description that starts with an uppercase letter or ends with a period, and the pull request cannot be merged until it passes.
 
 | Type | Use it for | Version bump | Changelog section |
 | --- | --- | --- | --- |
@@ -169,7 +169,7 @@ Maintainers release statica by merging the Release PR that release-please keeps 
 
 | Workflow | Runs on | Jobs |
 | --- | --- | --- |
-| PR title (`.github/workflows/pr-title.yml`) | Pull requests: opened, edited, reopened, and on every new commit | **PR title**: checks the title against Conventional Commits and the allowed types. It checks out nothing and reads only the title through the API, which the read-only token of a pull request from a fork allows. |
+| PR title (`.github/workflows/pr-title.yml`) | Pull requests: opened, edited, reopened, and on every new commit | **PR title**: checks the title against Conventional Commits, the allowed types and the form of the description. It checks out nothing and reads only the title through the API, which the read-only token of a pull request from a fork allows. |
 | CI (`.github/workflows/ci.yml`) | Pull requests, pushes to `main`, manual runs | **Go checks**: `make check`, `make fuzz`, a Linux `amd64` and `arm64` cross-compilation without cgo, `make workflows-check`. **Go tests (linux/arm64)** and **Go tests (macOS)**: `make check` on an arm64 Linux runner and on a macOS runner. **Release dry run**: `goreleaser check`, then a snapshot build of every archive, SBOM and per-platform image, and a run of the `linux/amd64` image with `version` and `config validate`. **Workflow audit**: `zizmor` on the workflows and the Dependabot configuration, with its online audits; it is not a required check, because a new advisory about an action can turn it red without any change in the pull request, but fix what it reports before merging. **Go vulnerabilities**: `make vuln`. |
 | Documentation (`.github/workflows/docs.yml`) | Pull requests, pushes to `main`, manual runs, and the Release workflow | **Build documentation** (pull requests and pushes): `make docs-install`, `make docs-audit`, `make docs-build` and `make docs-check` with the runner's Chrome, the same for an archived version, and a test of `docs/scripts/assemble-site.mjs` on those builds. **Assemble documentation** and **Deploy documentation** (deploys only): the site root built from the latest release, the older versions from the documentation archives of the releases, and the publication to GitHub Pages. |
 | Security (`.github/workflows/security.yml`) | Every week, manual runs | **Go vulnerabilities (main)**: `make vuln`. **Latest release**: finds the latest stable release, not counting release candidates; before the first release it ends with a notice and the next two jobs are skipped. **Go vulnerabilities (latest release)**: `make vuln` on its tag. **Image scan (latest release)**: Grype on its `linux/amd64` image, with the results in the repository's Security tab. |

@@ -40,3 +40,9 @@ jobs:
             build
             ci
             chore
+          # The description is the changelog entry: no uppercase first letter
+          # and no final period.
+          subjectPattern: ^(?![A-Z]).*[^.]$
+          subjectPatternError: |
+            The description "{subject}" of the title "{title}" must not start
+            with an uppercase letter or end with a period.

@@ -217,7 +217,8 @@ jobs:
           set -euo pipefail
           mkdir "$RUNNER_TEMP/archives"
           jq -r '.archives[] | "\(.tag) \(.asset)"' "$RUNNER_TEMP/plan.json" | while read -r tag asset; do
-            gh release download "$tag" --repo "$REPOSITORY" --pattern "$asset" --dir "$RUNNER_TEMP/archives"
+            # stdin is the list being read: keep gh away from it.
+            gh release download "$tag" --repo "$REPOSITORY" --pattern "$asset" --dir "$RUNNER_TEMP/archives" < /dev/null
           done
       - name: Assemble the site
         run: |
