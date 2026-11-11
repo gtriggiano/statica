@@ -11,12 +11,12 @@ This is the runbook for maintainers. Contributors only need the [commit message 
   2. builds with [GoReleaser](https://goreleaser.com/) the archives for Linux and macOS on amd64 and arm64, the checksums, the SBOMs and the image `ghcr.io/gtriggiano/statica:X.Y.Z` for linux/amd64 and linux/arm64, from the same binaries; in parallel it builds the documentation of this version;
   3. attests the provenance of the archives and of the image;
   4. runs the image and the archives on amd64 and arm64 runners;
-  5. moves the image tags `X.Y`, `X` (from 1.0.0) and `latest` to the verified digest, adds an Install section to the notes and publishes the release, which becomes immutable;
+  5. moves the image tags `X.Y`, `X` and `latest` to the verified digest, adds an Install section to the notes and publishes the release, which becomes immutable;
   6. publishes the documentation site.
 
 Everything up to step 5 happens on a draft: a failed job can run again. After step 5 the tag and the assets never change; a defect is fixed with a new version.
 
-The first version is `0.1.0`. Before 1.0.0, a breaking change bumps the minor version and everything else follows the table in CONTRIBUTING.md.
+The first version is `1.0.0`. A breaking change bumps the major version, and everything else follows the table in CONTRIBUTING.md.
 
 ## One-time repository setup
 
@@ -46,26 +46,14 @@ These settings are in place; check them when something behaves unexpectedly.
 
 ## Release a candidate
 
-A release candidate lets people try a version before it is released, for example before 1.0.0 or before a minor version with large changes. It is optional.
+A release candidate lets people try a version before it is released, for example before a major version or before a minor version with large changes. It is optional.
 
 1. Make sure the Release PR is up to date: release-please has run on the latest commit of `main`.
 2. Actions → **Release** → **Run workflow** → branch `main` → select **candidate**.
 3. The workflow creates the tag `vX.Y.Z-rc.N` on the current `main`, with `N` one more than the last candidate of that version, and runs the same pipeline. The result is a pre-release (never Latest), the image `X.Y.Z-rc.N` (the floating tags do not move) and the documentation under `/statica/next/`.
 4. If the candidate has problems, fix them with normal pull requests and run step 2 again. When it is good, release as above: the final version comes from the current `main`.
 
-Candidates do not go through release-please, so on `main` `CHANGELOG.md` and the version references in the documentation keep showing the last release. The documentation built for the candidate, under `/statica/next/`, shows the candidate's version in every image tag and installation command. A candidate before the first release, such as `0.1.0-rc.1`, is published, but the **Documentation site** job fails: the site root is built from the latest release, and there is none yet. Its documentation appears with the first release.
-
-## Move to 1.0.0
-
-1. Open a normal pull request titled `feat: declare the public API stable` that:
-   - updates `docs/reference/versioning.md`: from 1.0.0 a breaking change needs a new major version;
-   - removes `initial-version` from `release-please-config.json`;
-   - ends its description with the line `Release-As: 1.0.0`, alone in the last paragraph, with nothing after it.
-
-   The type must be visible in the changelog (`feat`, not `chore` or `docs`): release-please opens no Release PR for an empty changelog, even with `Release-As`.
-2. The Release PR proposes `chore(main): release 1.0.0`.
-3. Optionally, release candidates `1.0.0-rc.N`.
-4. Merge the Release PR. From now on a breaking change bumps the major version, and the image also gets the floating tag `1`.
+Candidates do not go through release-please, so on `main` `CHANGELOG.md` and the version references in the documentation keep showing the last release. The documentation built for the candidate, under `/statica/next/`, shows the candidate's version in every image tag and installation command. A candidate cut before the first release, such as `1.0.0-rc.1`, is published, but the **Documentation site** job fails: the site root is built from the latest release, and there is none yet. Its documentation is never published: once the first release exists, the candidate is older than it, and `/statica/next/` only holds a candidate newer than the latest release.
 
 ## Fix a version or a changelog entry
 
@@ -90,7 +78,7 @@ Candidates do not go through release-please, so on `main` `CHANGELOG.md` and the
 | `build` stops because the tag does not point to the commit of the run | Run the Release workflow on the tag (see [Recovery run](#recovery-run-on-a-tag)). |
 | `verify` fails: an artifact is broken | Do not publish and do not delete the tag: release-please finds the last release by its tag, and without it the next changelog would list every commit (the tag ruleset prevents it anyway). Leave the draft unpublished, delete the version `X.Y.Z` of the package on ghcr.io (no floating tag points to it), fix it with a `fix:` pull request and release the next patch. In that pull request, mark the `X.Y.Z` section of `CHANGELOG.md` as not published. |
 | `verify` fails on a release candidate | Leave the draft, fix it on `main`, run the next candidate. |
-| `publish` stops because the image is not public | Happens at the first release: make the package public (Package settings → Change visibility → Public) and re-run the job. |
+| `publish` stops because the image is not public | Make the package public (Package settings → Change visibility → Public) and re-run the job. |
 | `publish` fails halfway | Re-run it: every step can run twice (the floating tags are rewritten, the Install section is added only once). |
 | `Documentation site` fails | Run the Documentation workflow on `main` with **deploy** selected. The release stays valid. |
 | A defect is found after publishing | Never rewrite a tag or an asset: with immutable releases a tag name cannot be used again. Release a patch and, if useful, add a warning to the notes of the broken release (the text stays editable). |

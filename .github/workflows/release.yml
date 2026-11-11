@@ -322,7 +322,7 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
-      packages: read # the package is still private at the first release
+      packages: read
       attestations: read
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
@@ -388,8 +388,8 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       REPOSITORY: ${{ github.repository }}
     steps:
-      # Nothing becomes public before the image: at the first release the
-      # package is still private, and this job stops until it is made public.
+      # Nothing becomes public before the image: if the package is not public,
+      # this job stops until it is made public.
       - name: Check that the image is public
         run: |
           if ! docker buildx imagetools inspect "$IMAGE@$DIGEST" > /dev/null 2>&1; then

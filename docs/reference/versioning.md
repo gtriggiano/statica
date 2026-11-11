@@ -18,17 +18,17 @@ These are not: the Go packages in the repository, which are internal, the wordin
 
 ## What a version number means
 
-| Change | From 1.0.0 | Before 1.0.0 |
+| Change | Example | What it contains |
 | --- | --- | --- |
-| Patch, `0.4.2` → `0.4.3` | Fixes, performance improvements and dependency updates, with no change to the public interface | The same |
-| Minor, `0.4.2` → `0.5.0` | New features, compatible with existing configurations and integrations | New features, **or breaking changes** |
-| Major, `1.4.2` → `2.0.0` | Breaking changes | Not used |
+| Patch | `1.4.2` → `1.4.3` | Fixes, performance improvements and dependency updates, with no change to the public interface |
+| Minor | `1.4.2` → `1.5.0` | New features, compatible with existing configurations and integrations |
+| Major | `1.4.2` → `2.0.0` | Breaking changes |
 
-Before 1.0.0, a minor version can break the public interface: read the **⚠ BREAKING CHANGES** section of the [changelog](./changelog.md) before you move to a new minor version. Each breaking change there says how to migrate. From 1.0.0, a breaking change comes only with a new major version.
+A breaking change comes only with a new major version: read the **⚠ BREAKING CHANGES** section of the [changelog](./changelog.md) before you move to a new major version. Each breaking change there says how to migrate.
 
 ## Release candidates
 
-Before some releases, a release candidate `X.Y.Z-rc.N` lets you try the next version. A release candidate is a GitHub pre-release with its own image tag, such as `0.5.0-rc.1`. It never becomes the latest release, never moves the floating image tags, and is not for production. Its documentation is under `/statica/next/` until the version is released.
+Before some releases, a release candidate `X.Y.Z-rc.N` lets you try the next version. A release candidate is a GitHub pre-release with its own image tag, such as `1.5.0-rc.1`. It never becomes the latest release, never moves the floating image tags, and is not for production. Its documentation is under `/statica/next/` until the version is released.
 
 ## Supported versions
 

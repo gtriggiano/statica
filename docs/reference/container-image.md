@@ -16,11 +16,11 @@ ghcr.io/gtriggiano/statica:0.0.0
 
 | Tag | Example | Points to | Moves? |
 | --- | --- | --- | --- |
-| `X.Y.Z` | `0.2.1` | That release | Never, once the release is published |
-| `X.Y` | `0.2` | The latest patch release of that minor version | Yes, with each patch release |
-| `X` | `1` | The latest release of that major version, from 1.0.0 | Yes, with each release |
+| `X.Y.Z` | `1.2.1` | That release | Never, once the release is published |
+| `X.Y` | `1.2` | The latest patch release of that minor version | Yes, with each patch release |
+| `X` | `1` | The latest release of that major version | Yes, with each release |
 | `latest` | | The latest release | Yes, with each release |
-| `X.Y.Z-rc.N` | `0.3.0-rc.1` | A release candidate, for testing only | Never |
+| `X.Y.Z-rc.N` | `1.3.0-rc.1` | A release candidate, for testing only | Never |
 
 Tags have no `v` prefix. No image is built from unreleased code. The floating tags `X.Y`, `X` and `latest` move to a new release only after its image has passed its checks on both platforms, and never to a release candidate. For a reference that never changes, use the digest given in the release notes: `ghcr.io/gtriggiano/statica@sha256:…`.
 
@@ -51,7 +51,7 @@ Each image carries these [OCI labels](https://github.com/opencontainers/image-sp
 | --- | --- |
 | `org.opencontainers.image.title` | `statica` |
 | `org.opencontainers.image.description` | A one-line description of statica |
-| `org.opencontainers.image.version` | The release version, such as `0.2.1` |
+| `org.opencontainers.image.version` | The release version, such as `1.2.1` |
 | `org.opencontainers.image.revision` | The full commit hash of the release |
 | `org.opencontainers.image.created` | The date of that commit |
 | `org.opencontainers.image.source` | `https://github.com/gtriggiano/statica` |

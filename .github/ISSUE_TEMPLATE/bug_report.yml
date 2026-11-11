@@ -16,7 +16,7 @@ body:
       description: >-
         The output of `statica version`. For the container image, run the image
         with the `version` command.
-      placeholder: statica 0.1.0 (revision 0123abc…; go1.27.3; built 2026-11-20T10:00:00Z)
+      placeholder: statica 1.0.0 (revision 0123abc…; go1.27.3; built 2026-11-20T10:00:00Z)
     validations:
       required: true
   - type: dropdown
