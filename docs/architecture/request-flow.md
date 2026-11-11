@@ -1,6 +1,6 @@
 # Request flow and URL mapping
 
-This page follows a request from the public listener to its response: the checks that can reject it, the redirect rules, and the order in which statica maps its path to object keys and falls back when an object is missing. Every step before resolution is local: a request that is rejected or redirected there never reaches the memory cache or the origin. The [HTTP responses reference](../reference/http-responses.md) lists every status and header that results.
+This page follows a request from the public listener to its response: the checks that can reject it, the redirect rules, and the order in which **statica** maps its path to object keys and falls back when an object is missing. Every step before resolution is local: a request that is rejected or redirected there never reaches the memory cache or the origin. The [HTTP responses reference](../reference/http-responses.md) lists every status and header that results.
 
 ## The request pipeline
 

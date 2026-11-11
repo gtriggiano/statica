@@ -1,6 +1,6 @@
 # Connect to S3 and S3-compatible providers
 
-Point statica at a bucket on AWS S3 or on an S3-compatible service, give it read-only credentials, and check the connection before you serve traffic.
+Point **statica** at a bucket on AWS S3 or on an S3-compatible service, give it read-only credentials, and check the connection before you serve traffic.
 
 ## Prerequisites
 

@@ -4,7 +4,7 @@ outline: [2, 2]
 
 # Metrics reference
 
-statica exports Prometheus metrics on the admin listener, at [`/metrics`](./admin-endpoints.md#metrics). This page lists every metric family whose name starts with `statica_`, with its type, its labels and every value they take, and when its series exist. It also names the standard Go and process families exported next to them.
+**statica** exports Prometheus metrics on the admin listener, at [`/metrics`](./admin-endpoints.md#metrics). This page lists every metric family whose name starts with `statica_`, with its type, its labels and every value they take, and when its series exist. It also names the standard Go and process families exported next to them.
 
 Each family has its own heading, named after its full name. Durations are in seconds and sizes in bytes. Scrapes read in-memory state only: they never contact the origin. [Monitor with Prometheus](../guide/metrics.md) shows how to scrape them and which queries answer common questions.
 

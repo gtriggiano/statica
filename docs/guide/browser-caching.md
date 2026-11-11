@@ -1,6 +1,6 @@
 # Control browser and CDN caching
 
-Choose the `Cache-Control` header that browsers and CDNs receive for each part of your site, independently of how long statica keeps objects in its own memory.
+Choose the `Cache-Control` header that browsers and CDNs receive for each part of your site, independently of how long **statica** keeps objects in its own memory.
 
 ## Prerequisites
 

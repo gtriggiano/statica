@@ -1,6 +1,6 @@
 # Container image
 
-statica is published as the public image `ghcr.io/gtriggiano/statica`, one image index for linux/amd64 and linux/arm64. Each release builds it from the same binaries as the release archives. The image is part of statica's public interface: a change to anything on this page that breaks a deployment is a breaking change ([Versioning](./versioning.md)).
+**statica** is published as the public image `ghcr.io/gtriggiano/statica`, one image index for linux/amd64 and linux/arm64. Each release builds it from the same binaries as the release archives. The image is part of statica's public interface: a change to anything on this page that breaks a deployment is a breaking change ([Versioning](./versioning.md)).
 
 The image of the release that this documentation describes:
 

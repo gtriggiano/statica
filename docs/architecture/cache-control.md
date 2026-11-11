@@ -1,6 +1,6 @@
 # Cache-Control and Age
 
-Two policies stay apart: [`cache`](../reference/configuration.md#cache) decides what statica stores in its memory cache, and [`cache_control`](../reference/configuration.md#cache-control) decides the `Cache-Control` header that browsers and CDNs receive. This page explains how that header is chosen for every response, which path each kind of rule matches, and how `Age` reports the age of every response built from an object, whether it was served from memory or read from the origin. [Control browser and CDN caching](../guide/browser-caching.md) shows how to choose a policy for a site.
+Two policies stay apart: [`cache`](../reference/configuration.md#cache) decides what **statica** stores in its memory cache, and [`cache_control`](../reference/configuration.md#cache-control) decides the `Cache-Control` header that browsers and CDNs receive. This page explains how that header is chosen for every response, which path each kind of rule matches, and how `Age` reports the age of every response built from an object, whether it was served from memory or read from the origin. [Control browser and CDN caching](../guide/browser-caching.md) shows how to choose a policy for a site.
 
 ## Two separate policies
 

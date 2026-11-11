@@ -18,7 +18,7 @@ The rules are in `CONTRIBUTING.md` § Documentation. Read it before writing a ne
 2. **Check the behavior in the code.** The code is the source of truth: document what it does today, never planned behavior.
 3. **Write in the house style:**
    - one line per paragraph and per list item, never broken mid-sentence;
-   - US English, second person, present tense, imperative steps, sentence-case headings, statica always lowercase;
+   - US English, second person, present tense, imperative steps, sentence-case headings, statica always lowercase and in bold at its first mention in the prose of each page;
    - no superlatives, no "simply", "just" or "easy", no performance claims, no claim that an S3 provider is qualified;
    - public interfaces only: configuration keys, CLI commands and flags, log events and fields, metric names and labels, admin endpoints, HTTP headers and statuses. No Go package, type or test names;
    - a configuration key with its full dotted path in code at its first mention on a page (`cache.max_bytes`), and values in code (`30s`, `128MiB`, `true`);

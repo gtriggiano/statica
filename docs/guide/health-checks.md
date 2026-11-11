@@ -1,6 +1,6 @@
 # Health checks and readiness
 
-Wire your orchestrator's or load balancer's probes to statica, and decide whether an instance's readiness should follow the health of its origin.
+Wire your orchestrator's or load balancer's probes to **statica**, and decide whether an instance's readiness should follow the health of its origin.
 
 ## Prerequisites
 

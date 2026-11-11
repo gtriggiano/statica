@@ -30,7 +30,7 @@ statica: server.tls.min_version (line 8, column 18): expected a string
 | `<field>: missing environment variable <NAME>` | A `${NAME}` substitution whose variable is not set. |
 | `server.tls: cannot load a matching certificate and private key` | A missing TLS file, or a key that does not match the first certificate of the chain ([Serve HTTPS directly](./tls.md#validate-the-files)). |
 
-**Fix.** Correct the field, run `config validate` again, and do not let your supervisor restart statica in a loop on status 2.
+**Fix.** Correct the field, run `config validate` again, and do not let your supervisor restart **statica** in a loop on status 2.
 
 ## `startup_failed`, exit status 1
 

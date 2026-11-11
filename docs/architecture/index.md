@@ -1,6 +1,6 @@
 # Architecture overview
 
-statica is one process that serves one S3 bucket, or one prefix inside it, as one website. Every request follows the same path: the public listener accepts it, admission checks decide whether statica handles it, redirect rules may answer it at once, and resolution maps its path to object keys that are read through a bounded memory cache from the origin. A separate admin listener exposes liveness, readiness and metrics. This page states the principles behind that design and introduces each component. The other Architecture pages describe the mechanisms in detail. For what statica offers and where it fits in a deployment, start with [What is statica?](../guide/what-is-statica.md).
+**statica** is one process that serves one S3 bucket, or one prefix inside it, as one website. Every request follows the same path: the public listener accepts it, admission checks decide whether statica handles it, redirect rules may answer it at once, and resolution maps its path to object keys that are read through a bounded memory cache from the origin. A separate admin listener exposes liveness, readiness and metrics. This page states the principles behind that design and introduces each component. The other Architecture pages describe the mechanisms in detail. For what statica offers and where it fits in a deployment, start with [What is statica?](../guide/what-is-statica.md).
 
 ## Design principles
 

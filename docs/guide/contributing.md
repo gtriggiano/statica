@@ -1,6 +1,6 @@
 # Contributing
 
-statica is developed in the [GitHub repository](https://github.com/gtriggiano/statica). Bug reports, documentation fixes and code changes go there, as issues and pull requests. Read [CONTRIBUTING.md](https://github.com/gtriggiano/statica/blob/main/CONTRIBUTING.md) before you start.
+**statica** is developed in the [GitHub repository](https://github.com/gtriggiano/statica). Bug reports, documentation fixes and code changes go there, as issues and pull requests. Read [CONTRIBUTING.md](https://github.com/gtriggiano/statica/blob/main/CONTRIBUTING.md) before you start.
 
 - **Bug reports.** Include the output of `statica version`, the relevant part of the configuration and the log lines. Remove credentials, bucket names and hostnames you do not want to publish.
 - **Documentation.** Documentation pages link to their source with "Edit this page on GitHub". A statement about behavior must match the code.

@@ -1,6 +1,6 @@
 # Configuration basics
 
-Learn how statica finds and reads its configuration file, what the defaults give you, and how to check a change before you apply it. The [configuration reference](../reference/configuration.md) describes every field.
+Learn how **statica** finds and reads its configuration file, what the defaults give you, and how to check a change before you apply it. The [configuration reference](../reference/configuration.md) describes every field.
 
 ## Where statica finds the file
 

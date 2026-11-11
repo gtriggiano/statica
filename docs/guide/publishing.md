@@ -1,6 +1,6 @@
 # Publish a site to S3
 
-Upload a static site to a bucket so that statica serves it with the right paths, index pages, 404 page and headers, and switch to a new version of the site without mixing two versions.
+Upload a static site to a bucket so that **statica** serves it with the right paths, index pages, 404 page and headers, and switch to a new version of the site without mixing two versions.
 
 ## Prerequisites
 

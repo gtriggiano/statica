@@ -1,6 +1,6 @@
 # Security model
 
-statica serves one publication prefix of one bucket as a public website. Visitors are untrusted: they control URLs, headers and how their connections behave. Operators are trusted: they control the configuration, the credentials, the network and the admin listener. Publishers are trusted too: whatever they put under the publication prefix is served as the site. This page describes how each boundary is enforced, what statica logs and exposes, and what stays your responsibility.
+**statica** serves one publication prefix of one bucket as a public website. Visitors are untrusted: they control URLs, headers and how their connections behave. Operators are trusted: they control the configuration, the credentials, the network and the admin listener. Publishers are trusted too: whatever they put under the publication prefix is served as the site. This page describes how each boundary is enforced, what statica logs and exposes, and what stays your responsibility.
 
 ## Trust boundaries
 

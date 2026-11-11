@@ -1,6 +1,6 @@
 # Configuration examples
 
-The repository ships four complete configuration files in `docs/examples/`. A Go test loads and validates each of them, so they stay valid as statica changes. This page shows each file and what you need to change before you use it. The [configuration reference](./configuration.md) describes every field, and [Configuration basics](../guide/configuration.md) explains the format, defaults and environment variables.
+The repository ships four complete configuration files in `docs/examples/`. A Go test loads and validates each of them, so they stay valid as **statica** changes. This page shows each file and what you need to change before you use it. The [configuration reference](./configuration.md) describes every field, and [Configuration basics](../guide/configuration.md) explains the format, defaults and environment variables.
 
 Check a file before you run it:
 

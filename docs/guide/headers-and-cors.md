@@ -9,7 +9,7 @@ Add security headers such as a Content Security Policy to every response, and le
 
 ## Add static headers
 
-[`headers.set`](../reference/configuration.md#headers-set) adds the same headers to every response that statica writes on the public listener: objects, 404 responses, redirects, errors and CORS preflights. A common set:
+[`headers.set`](../reference/configuration.md#headers-set) adds the same headers to every response that **statica** writes on the public listener: objects, 404 responses, redirects, errors and CORS preflights. A common set:
 
 ```yaml [config.yaml]
 headers:

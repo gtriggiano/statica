@@ -1,6 +1,6 @@
 # Serve HTTPS directly
 
-Terminate TLS in statica itself, so that clients connect to it over HTTPS without a proxy in front.
+Terminate TLS in **statica** itself, so that clients connect to it over HTTPS without a proxy in front.
 
 If a load balancer, CDN or ingress terminates TLS for you, statica can listen in cleartext behind it instead: see [Run behind a reverse proxy](./behind-a-proxy.md).
 

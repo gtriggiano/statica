@@ -1,6 +1,6 @@
 # Installation
 
-Install statica from the container image, from a release archive, or by building it from source. The image and the archives of a release contain the same binaries.
+Install **statica** from the container image, from a release archive, or by building it from source. The image and the archives of a release contain the same binaries.
 
 | Method | Platforms |
 | --- | --- |

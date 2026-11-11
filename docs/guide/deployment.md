@@ -1,6 +1,6 @@
 # Deploy, roll out and shut down
 
-Run statica as a supervised service, wire its probes, apply configuration changes with restarts, and stop instances without cutting the requests they are serving.
+Run **statica** as a supervised service, wire its probes, apply configuration changes with restarts, and stop instances without cutting the requests they are serving.
 
 ## Prerequisites
 

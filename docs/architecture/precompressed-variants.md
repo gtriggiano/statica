@@ -1,6 +1,6 @@
 # Precompressed variants
 
-Compression happens when you publish, not when statica serves: you publish compressed copies next to each object, such as a Brotli copy `app.js.br` and a gzip copy `app.js.gz` next to `app.js`, and statica serves them. With `compression.mode: precompressed`, statica chooses, for each request, the representation the client prefers among those that exist, and labels it with `Content-Encoding`. With `compression.mode: off`, it reads only the canonical object, the one the URL names, but it still respects that object's own declared encoding and the client's `Accept-Encoding`. [Serve precompressed files](../guide/precompressed-files.md) shows how to produce and upload the variants.
+Compression happens when you publish, not when **statica** serves: you publish compressed copies next to each object, such as a Brotli copy `app.js.br` and a gzip copy `app.js.gz` next to `app.js`, and statica serves them. With `compression.mode: precompressed`, statica chooses, for each request, the representation the client prefers among those that exist, and labels it with `Content-Encoding`. With `compression.mode: off`, it reads only the canonical object, the one the URL names, but it still respects that object's own declared encoding and the client's `Accept-Encoding`. [Serve precompressed files](../guide/precompressed-files.md) shows how to produce and upload the variants.
 
 ## Modes and configuration
 

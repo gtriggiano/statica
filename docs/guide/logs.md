@@ -1,6 +1,6 @@
 # Work with the logs
 
-Collect statica's logs, choose what they contain, and read the access and lifecycle events to find out what happened to a request or to the process.
+Collect **statica**'s logs, choose what they contain, and read the access and lifecycle events to find out what happened to a request or to the process.
 
 ## Prerequisites
 

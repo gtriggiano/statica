@@ -1,6 +1,6 @@
 # Serve a single-page application
 
-Configure statica so that deep links into a single-page application, such as `/orders/42`, load the application shell, while missing assets and other files still answer 404 Not Found.
+Configure **statica** so that deep links into a single-page application, such as `/orders/42`, load the application shell, while missing assets and other files still answer 404 Not Found.
 
 ## Prerequisites
 

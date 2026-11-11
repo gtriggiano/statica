@@ -1,6 +1,6 @@
 # HTTP responses reference
 
-This page lists the status codes that the public listener sends and when, the headers that statica sets or controls, the origin metadata that reaches visitors, and the request headers that statica reads. The admin listener's responses are in the [admin endpoints reference](./admin-endpoints.md). [Request flow and URL mapping](../architecture/request-flow.md) describes the order of the checks.
+This page lists the status codes that the public listener sends and when, the headers that **statica** sets or controls, the origin metadata that reaches visitors, and the request headers that statica reads. The admin listener's responses are in the [admin endpoints reference](./admin-endpoints.md). [Request flow and URL mapping](../architecture/request-flow.md) describes the order of the checks.
 
 ## Statuses from statica
 

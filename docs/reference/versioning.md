@@ -1,6 +1,6 @@
 # Versioning
 
-statica follows [Semantic Versioning 2.0.0](https://semver.org/), applied to the public interface below. Before you move to a new major version, read the **⚠ BREAKING CHANGES** section of the [changelog](./changelog.md): each breaking change there says how to migrate.
+**statica** follows [Semantic Versioning 2.0.0](https://semver.org/), applied to the public interface below. Before you move to a new major version, read the **⚠ BREAKING CHANGES** section of the [changelog](./changelog.md): each breaking change there says how to migrate.
 
 ## Public interface
 

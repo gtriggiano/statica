@@ -1,6 +1,6 @@
 # Tune the memory cache
 
-Size statica's memory cache for your site, choose how long objects stay fresh, and read the metrics that show whether the limits fit your traffic.
+Size **statica**'s memory cache for your site, choose how long objects stay fresh, and read the metrics that show whether the limits fit your traffic.
 
 statica has no measured capacity figures and no recommended sizes: start from the defaults, watch the metrics below and change one limit at a time. [Memory cache](../architecture/memory-cache.md) explains the mechanisms behind each setting.
 

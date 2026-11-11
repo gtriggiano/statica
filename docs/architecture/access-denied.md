@@ -1,6 +1,6 @@
 # Access denied
 
-When the origin answers 403 Forbidden, statica treats the answer as a failure, not as a missing object. It stops resolving the URL, does not record the key as missing, and answers either 404 Not Found or 502 Bad Gateway, depending on `errors.access_denied`. Logs, metrics and health checks keep the denial visible even when the public status hides it.
+When the origin answers 403 Forbidden, **statica** treats the answer as a failure, not as a missing object. It stops resolving the URL, does not record the key as missing, and answers either 404 Not Found or 502 Bad Gateway, depending on `errors.access_denied`. Logs, metrics and health checks keep the denial visible even when the public status hides it.
 
 ## What counts as a denial
 

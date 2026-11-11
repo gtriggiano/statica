@@ -1,6 +1,6 @@
 # Serve precompressed files
 
-Publish Brotli and gzip copies of your text files next to the originals, and let statica send each client the copy it prefers among those that exist. Responses are never compressed on the fly.
+Publish Brotli and gzip copies of your text files next to the originals, and let **statica** send each client the copy it prefers among those that exist. Responses are never compressed on the fly.
 
 ## Prerequisites
 

@@ -1,6 +1,6 @@
 # What is statica?
 
-statica is a web server for static websites stored in S3. This page describes what it does, where it fits in a deployment, and what it leaves to other tools.
+**statica** is a web server for static websites stored in S3. This page describes what it does, where it fits in a deployment, and what it leaves to other tools.
 
 ## What it is
 

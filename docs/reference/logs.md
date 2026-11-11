@@ -19,7 +19,7 @@ ts=2026-11-07T23:56:06.073Z level=info event=http_request request_id=005f9d3e5c6
 
 ## Levels
 
-Each event has a level: `debug`, `info`, `warn` or `error`. [`observability.log_level`](./configuration.md#observability-log-level) sets the minimum level written, `info` by default. It applies to every event, request events included. statica writes no `debug` events.
+Each event has a level: `debug`, `info`, `warn` or `error`. [`observability.log_level`](./configuration.md#observability-log-level) sets the minimum level written, `info` by default. It applies to every event, request events included. **statica** writes no `debug` events.
 
 Most events always have the same level. `http_request`, `startup_aborted`, `shutdown_complete` and `origin_health_changed` take theirs from what happened, as described with each event.
 

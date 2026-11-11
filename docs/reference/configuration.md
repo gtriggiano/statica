@@ -4,7 +4,7 @@ outline: [2, 2]
 
 # Configuration reference
 
-Each statica command that needs a configuration reads one YAML file when it starts. This page lists every field with its type, its default and the rules it must satisfy. The [CLI reference](./cli.md) describes the commands that load, check and print the file, [Configuration examples](./examples.md) shows complete files, and [Configuration basics](../guide/configuration.md) introduces the format.
+Each **statica** command that needs a configuration reads one YAML file when it starts. This page lists every field with its type, its default and the rules it must satisfy. The [CLI reference](./cli.md) describes the commands that load, check and print the file, [Configuration examples](./examples.md) shows complete files, and [Configuration basics](../guide/configuration.md) introduces the format.
 
 Each field has its own heading, named after its full path. `[]` stands for an item of a list and `<name>` for an entry of a map: `cache.rules[].match.prefix`, `headers.set.<name>`.
 

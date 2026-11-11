@@ -1,6 +1,6 @@
 # Run behind a reverse proxy, CDN or ingress
 
-Put statica behind a load balancer, reverse proxy, CDN or ingress controller, so that the access log records the real client, request IDs follow each request across both, and both sides agree on hostnames and time limits.
+Put **statica** behind a load balancer, reverse proxy, CDN or ingress controller, so that the access log records the real client, request IDs follow each request across both, and both sides agree on hostnames and time limits.
 
 ## Prerequisites
 

@@ -1,6 +1,6 @@
 # Quickstart
 
-Install statica, point it at a bucket, and serve the bucket's `index.html` on your machine.
+Install **statica**, point it at a bucket, and serve the bucket's `index.html` on your machine.
 
 ## Prerequisites
 

@@ -57,7 +57,7 @@ Connecting to the origin, and to AWS credential providers, is bounded per attemp
 
 ### The preparation budget
 
-`server.response_header_timeout` is one budget per request. It starts when the request is admitted, that is when it takes a request slot, and ends when statica commits the final response headers. Origin attempts, backoff, credential lookups, waiting for another request's shared fill, and the guarded read of a range all spend from it. Retries do not restart it. Once the headers are sent, the budget is gone and cannot cancel the body that follows.
+`server.response_header_timeout` is one budget per request. It starts when the request is admitted, that is when it takes a request slot, and ends when **statica** commits the final response headers. Origin attempts, backoff, credential lookups, waiting for another request's shared fill, and the guarded read of a range all spend from it. Retries do not restart it. Once the headers are sent, the budget is gone and cannot cancel the body that follows.
 
 ### Inactivity, not duration
 

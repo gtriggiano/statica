@@ -1,6 +1,6 @@
 # Memory cache
 
-A bounded in-memory cache keeps copies of origin responses, so that repeated requests for the same object do not all reach the origin. This page explains what an entry is, how memory is accounted and reclaimed, how concurrent requests share one origin read, when an entry is fresh, how statica revalidates it, and when a request bypasses the cache. The [`cache`](../reference/configuration.md#cache) block configures it. With [`cache.enabled`](../reference/configuration.md#cache-enabled) set to `false` there is no memory cache, and every read goes to the origin.
+A bounded in-memory cache keeps copies of origin responses, so that repeated requests for the same object do not all reach the origin. This page explains what an entry is, how memory is accounted and reclaimed, how concurrent requests share one origin read, when an entry is fresh, how **statica** revalidates it, and when a request bypasses the cache. The [`cache`](../reference/configuration.md#cache) block configures it. With [`cache.enabled`](../reference/configuration.md#cache-enabled) set to `false` there is no memory cache, and every read goes to the origin.
 
 The memory cache decides what statica stores. What browsers and CDNs are told to store is a separate policy, described in [Cache-Control and Age](./cache-control.md). To size and tune the cache for a site, see [Tune the memory cache](../guide/cache-tuning.md).
 

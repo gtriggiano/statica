@@ -1,6 +1,6 @@
 # Monitor with Prometheus
 
-Scrape statica's metrics with Prometheus and query the signals that show traffic, failures, cache behavior, origin health and resource use.
+Scrape **statica**'s metrics with Prometheus and query the signals that show traffic, failures, cache behavior, origin health and resource use.
 
 statica ships no dashboards and no alert rules. This page shows queries and names the signals worth watching; it sets no thresholds.
 

@@ -91,7 +91,7 @@ These hold across the code base. Do not weaken one without the maintainer's agre
 Every behavior change updates the documentation in the same pull request. The rules are in [CONTRIBUTING.md § Documentation](CONTRIBUTING.md#documentation) and the procedure in the `write-docs` skill; the ones agents break most often:
 
 - Document what the code does today, never planned behavior, and mention only public interfaces: no Go package, type or test names.
-- Write each paragraph and each list item on one line, in US English, second person and present tense. statica is always lowercase. No "simply", "just" or "easy", no superlatives, no performance claims.
+- Write each paragraph and each list item on one line, in US English, second person and present tense. statica is always lowercase, in bold at its first mention in the prose of each page. No "simply", "just" or "easy", no superlatives, no performance claims.
 - Keep each fact in its home (values in `docs/reference/`, mechanisms in `docs/architecture/`, tasks in `docs/guide/`) and link to it.
 - Every `.md` file under `docs/` becomes a published page: put nothing else there, agent instructions included.
 - Go tests in `make check` read the configuration and metrics references, the `yaml [config.yaml]` snippets, the release version blocks and `docs/examples/`, and fail on any drift from the code.

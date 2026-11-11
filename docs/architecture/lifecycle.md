@@ -243,7 +243,7 @@ The configuration file and the TLS certificate and key are read only at startup,
 The memory cache lives in the process's memory, so a restarted instance starts with an empty cache and reads every object from the origin again until the cache warms up.
 
 ::: warning SIGHUP does not reload
-Only SIGINT and SIGTERM are handled. Any other signal that stops the process, such as SIGHUP or SIGKILL, stops it without a drain, without the shutdown events and without flushing the log output. A standard output whose reader has gone away does not stop the process: statica keeps serving, and the log lines it cannot write are dropped and counted in [`statica_log_events_dropped_total`](../reference/metrics.md#statica-log-events-dropped-total).
+Only SIGINT and SIGTERM are handled. Any other signal that stops the process, such as SIGHUP or SIGKILL, stops it without a drain, without the shutdown events and without flushing the log output. A standard output whose reader has gone away does not stop the process: **statica** keeps serving, and the log lines it cannot write are dropped and counted in [`statica_log_events_dropped_total`](../reference/metrics.md#statica-log-events-dropped-total).
 :::
 
 ## What statica does not do

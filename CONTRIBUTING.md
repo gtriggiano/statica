@@ -81,7 +81,7 @@ The documentation is a [VitePress](https://vitepress.dev/) site in `docs/`.
 ### Content
 
 - The code is the source of truth. Every statement about behavior, and every diagram, must match what the code does today. Do not document planned behavior.
-- Write in US English, in the second person and the present tense, with sentence-case headings and the imperative for steps. The name is statica, always lowercase. No superlatives and no "simply", "just" or "easy". Make no performance claims and no claims that an S3 provider is qualified.
+- Write in US English, in the second person and the present tense, with sentence-case headings and the imperative for steps. The name is statica, always lowercase: set it in bold at its first mention in the prose of each page, and in code formatting only for the command or the image. No superlatives and no "simply", "just" or "easy". Make no performance claims and no claims that an S3 provider is qualified.
 - Use only public interfaces in the user documentation: configuration keys, CLI commands and flags, log events and fields, metric names and labels, admin endpoints, HTTP headers and statuses. No Go package, type or test names.
 - The site follows [Diátaxis](https://diataxis.fr/): `docs/guide/` holds the quickstart and the how-to guides, `docs/architecture/` explains the mechanisms, and `docs/reference/` lists every field, command, response, log event and metric. Keep each fact in one home (defaults and allowed values in Reference, rules and mechanisms in Architecture) and link to it from the guides.
 - Add a new page to the sidebar in `docs/.vitepress/navigation.ts`.

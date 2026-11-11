@@ -1,6 +1,6 @@
 # Ranges and conditional requests
 
-Conditional request headers and single byte ranges are evaluated by statica itself, against the representation it selected: the object, or the precompressed variant chosen for the request. It never forwards a client's conditional headers to the origin. A range comes either from a complete copy of the object in memory, called a memory snapshot on this page, or from the origin through a ranged read guarded by the object's ETag, so a response never combines the headers of one revision with the bytes of another.
+Conditional request headers and single byte ranges are evaluated by **statica** itself, against the representation it selected: the object, or the precompressed variant chosen for the request. It never forwards a client's conditional headers to the origin. A range comes either from a complete copy of the object in memory, called a memory snapshot on this page, or from the origin through a ranged read guarded by the object's ETag, so a response never combines the headers of one revision with the bytes of another.
 
 ## Order of evaluation
 

@@ -1,6 +1,6 @@
 # CLI reference
 
-The statica binary has commands that validate and inspect a configuration, check the origin and run the server.
+The **statica** binary has commands that validate and inspect a configuration, check the origin and run the server.
 
 | Command | What it does | Network access |
 | --- | --- | --- |

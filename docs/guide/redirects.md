@@ -1,6 +1,6 @@
 # Configure redirects
 
-Send visitors from old URLs to new ones, within the site or to another HTTPS origin, with rules that statica answers without reading the bucket.
+Send visitors from old URLs to new ones, within the site or to another HTTPS origin, with rules that **statica** answers without reading the bucket.
 
 ## Prerequisites
 
