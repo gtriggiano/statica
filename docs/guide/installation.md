@@ -6,7 +6,7 @@ Install **statica** from the container image, from a release archive, or by buil
 | --- | --- |
 | [Container image](#container-image) | linux/amd64, linux/arm64 |
 | [Release archive](#release-archive) | Linux and macOS, amd64 and arm64 |
-| [Build from source](#build-from-source) | Any platform with Go 1.27.3 or later |
+| [Build from source](#build-from-source) | Any platform with Go 1.27.4 or later |
 
 The commands on this page install the release that this documentation describes. Set the `VERSION` variable that they use:
 
@@ -112,7 +112,7 @@ Each archive also has an SPDX software bill of materials, `statica_<version>_<os
 
 ## Build from source
 
-You need Go 1.27.3 or later, Git and Make:
+You need Go 1.27.4 or later, Git and Make:
 
 ```sh
 git clone https://github.com/gtriggiano/statica.git

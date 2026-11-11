@@ -103,13 +103,13 @@ statica version
 Prints one line on standard output: `statica <version> (revision <revision>; <Go version>[; built <time>])`. Version, revision and build time are set when the binary is built. A release binary or image reports its version, the full commit hash and the date of that commit, for example:
 
 ```text
-statica 1.4.2 (revision 4f1c9a7e2b3d5f6a8c0e1d2b3a4f5e6d7c8b9a0f; go1.27.3; built 2026-11-20T10:00:00Z)
+statica 1.4.2 (revision 4f1c9a7e2b3d5f6a8c0e1d2b3a4f5e6d7c8b9a0f; go1.27.4; built 2026-11-20T10:00:00Z)
 ```
 
 A binary built without them, such as the one `make build` produces, reports `dev` and `unknown` and omits the build time:
 
 ```text
-statica dev (revision unknown; go1.27.3)
+statica dev (revision unknown; go1.27.4)
 ```
 
 ## `statica config validate`

@@ -46,7 +46,7 @@ curl -sS http://10.0.12.20:9090/metrics | grep -E '^statica_(build_info|ready|ca
 ```
 
 ```text
-statica_build_info{go_version="go1.27.3",revision="unknown",version="dev"} 1
+statica_build_info{go_version="go1.27.4",revision="unknown",version="dev"} 1
 statica_cache_enabled 1
 statica_ready 1
 ```

@@ -4,7 +4,7 @@ Install **statica**, point it at a bucket, and serve the bucket's `index.html` o
 
 ## Prerequisites
 
-- Linux or macOS, on amd64 or arm64, to install a release binary; or Go 1.27.3 or later with Git and Make, to build statica from source.
+- Linux or macOS, on amd64 or arm64, to install a release binary; or Go 1.27.4 or later with Git and Make, to build statica from source.
 - A bucket on AWS S3 or on an S3-compatible server, with an `index.html` object at its root ([Publish a site to S3](./publishing.md)).
 - Credentials that can read the bucket's objects, available through the standard AWS credential chain: environment variables, a profile in the shared AWS configuration files, or the role of the machine or container. On AWS, `s3:GetObject` is enough; without `s3:ListBucket`, a missing object looks like a denied one (see [Pitfalls](#pitfalls)).
 - `curl`, to try the result.
@@ -31,7 +31,7 @@ statica version
 ```
 
 ```text
-statica dev (revision unknown; go1.27.3)
+statica dev (revision unknown; go1.27.4)
 ```
 
 A build from source reports the version `dev` and the revision `unknown`. The last part is the Go version that built the binary.
@@ -124,7 +124,7 @@ statica serve
 statica logs one event per line on standard output. When both listeners are bound, it logs a `startup` event with its settings (shortened here; your values differ):
 
 ```text
-ts=2026-11-08T00:13:23.192Z level=info event=startup version=dev revision=unknown go_version=go1.27.3 public_listen=127.0.0.1:8080 admin_listen=127.0.0.1:9090 tls=off hosts=any ...
+ts=2026-11-08T00:13:23.192Z level=info event=startup version=dev revision=unknown go_version=go1.27.4 public_listen=127.0.0.1:8080 admin_listen=127.0.0.1:9090 tls=off hosts=any ...
 ```
 
 Leave it running, and open a second terminal for the next steps.
