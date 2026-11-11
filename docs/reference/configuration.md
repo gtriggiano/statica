@@ -72,7 +72,7 @@ statica normalizes some values while it validates them. `config print` shows the
 
 ### Ports
 
-A port in `server.listen`, `admin.listen`, `s3.endpoint` or `cors.allowed_origins` is a decimal integer from 1 to 65535, written in ASCII digits without a sign or a leading zero: `8080` is accepted, `08080` and `+8080` are rejected.
+A port in `server.listen`, `admin.listen`, `s3.endpoint`, `cors.allowed_origins` or a redirect destination is a decimal integer from 1 to 65535, written in ASCII digits without a sign or a leading zero: `8080` is accepted, `08080` and `+8080` are rejected.
 
 ### Error messages
 
@@ -672,7 +672,7 @@ Ordered redirect rules. statica evaluates them after the host, method and reques
 | Path | `from` and `to` are absolute paths. Each segment is literal text (percent-encoding allowed) or one placeholder that fills the whole segment. `from` matches a request path with the same number of segments; a trailing `/` counts as an empty last segment, so `/docs` and `/docs/` differ. |
 | Placeholder | `{name}`: a letter or `_`, then letters, digits or `_`. Bound once in `from`; every placeholder in `to` must be bound in `from`. It matches one nonempty decoded value of at most 256 bytes, optionally constrained by `captures`. |
 | Query in `from` | `?name=value&…` with literal, unique names; each value is literal or a placeholder. Every listed field must appear exactly once in the request, and other fields are allowed. When the path matches, a listed field that appears more than once answers 400 Bad Request. |
-| Destination | A local absolute path, or `https://` and a literal host with an optional port, followed by an optional path. Then an optional query, with placeholders allowed in values, and an optional literal fragment. `http://` destinations are rejected. |
+| Destination | A local absolute path, or `https://` and a literal host with an optional [port](#ports), followed by an optional path. Then an optional query, with placeholders allowed in values, and an optional literal fragment. `http://` destinations are rejected. |
 | Query forwarding | [`redirects[].query`](#redirects-query): `drop`, `preserve` or `unmatched`. |
 | Status | 301, 302, 307 or 308. |
 | Size limits | Each template is at most 8 KiB. A `Location` longer than 8 KiB answers 414 URI Too Long. |

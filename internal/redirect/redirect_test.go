@@ -227,7 +227,7 @@ func TestEquivalentSources(t *testing.T) {
 }
 
 func TestDestinationIPAuthorities(t *testing.T) {
-	for _, authority := range []string{"[::1]", "[2001:db8::1]:443", "[::ffff:127.0.0.1]", "127.0.0.1:8443"} {
+	for _, authority := range []string{"[::1]", "[2001:db8::1]:443", "[::ffff:127.0.0.1]", "127.0.0.1:8443", "example.com:1", "example.com:65535"} {
 		t.Run(authority, func(t *testing.T) {
 			want := "https://" + authority + "/new"
 			s := compile(t, Rule{From: "/old", To: want, Status: 308})
@@ -237,7 +237,7 @@ func TestDestinationIPAuthorities(t *testing.T) {
 			}
 		})
 	}
-	for _, authority := range []string{"[example.com]", "[127.0.0.1]", "[example.com]:443", "[127.0.0.1]:443", "[fe80::1%25en0]", "[fe80::1%en0]", "[::1]:", "[::1]:65536", "2001:db8::1", "[]"} {
+	for _, authority := range []string{"[example.com]", "[127.0.0.1]", "[example.com]:443", "[127.0.0.1]:443", "[fe80::1%25en0]", "[fe80::1%en0]", "[::1]:", "[::1]:65536", "2001:db8::1", "[]", "example.com:0", "example.com:0443", "example.com:000443", "example.com:+443", "[::1]:08443"} {
 		t.Run(authority, func(t *testing.T) {
 			_, err := Compile([]Rule{{From: "/old", To: "https://" + authority + "/new", Status: 308}})
 			if err == nil || !strings.Contains(err.Error(), "redirects[0].to:") {

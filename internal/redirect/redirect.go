@@ -321,9 +321,11 @@ func validAuthority(u *url.URL) bool {
 		if strings.HasSuffix(u.Host, ":") {
 			return false
 		}
+		// url.Parse leaves only digits in a port. The canonical form has no
+		// leading zero, as for every other port in the configuration.
 		if port := u.Port(); port != "" {
 			n, err := strconv.Atoi(port)
-			if err != nil || n < 1 || n > 65535 {
+			if err != nil || len(port) > 5 || port[0] == '0' || n > 65535 {
 				return false
 			}
 		}
