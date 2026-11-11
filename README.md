@@ -1,5 +1,3 @@
-# statica
-
 <p align="left">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/public/banner-dark.svg">
@@ -10,7 +8,7 @@
 
 [![Latest release](https://img.shields.io/github/v/release/gtriggiano/statica?sort=semver)](https://github.com/gtriggiano/statica/releases/latest) [![CI](https://github.com/gtriggiano/statica/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/gtriggiano/statica/actions/workflows/ci.yml) [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/gtriggiano/statica/badge)](https://scorecard.dev/viewer/?uri=github.com/gtriggiano/statica)
 
-statica is a web server for static websites stored in S3. One instance serves one bucket, or a prefix inside it, as one website, reading objects through a bounded in-memory cache. It is a single Go binary configured by one YAML file, with a separate admin listener for health checks and Prometheus metrics.
+**statica** is a web server for static websites stored in S3. One instance serves one bucket, or a prefix inside it, as one website, reading objects through a bounded in-memory cache. It is a single Go binary configured by one YAML file, with a separate admin listener for health checks and Prometheus metrics.
 
 ## Features
 
