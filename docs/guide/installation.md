@@ -12,7 +12,7 @@ The commands on this page install the release that this documentation describes.
 
 <!-- x-release-please-start-version -->
 ```sh
-VERSION=0.0.0
+VERSION=1.0.0
 ```
 <!-- x-release-please-end -->
 
