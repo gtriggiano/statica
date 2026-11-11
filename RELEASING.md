@@ -16,8 +16,6 @@ This is the runbook for maintainers. Contributors only need the [commit message 
 
 Everything up to step 5 happens on a draft: a failed job can run again. After step 5 the tag and the assets never change; a defect is fixed with a new version.
 
-The first version is `1.0.0`. A breaking change bumps the major version, and everything else follows the table in CONTRIBUTING.md.
-
 ## One-time repository setup
 
 These settings are in place; check them when something behaves unexpectedly.
@@ -53,8 +51,7 @@ A release candidate lets people try a version before it is released, for example
 3. The workflow creates the tag `vX.Y.Z-rc.N` on the current `main`, with `N` one more than the last candidate of that version, and runs the same pipeline. The result is a pre-release (never Latest), the image `X.Y.Z-rc.N` (the floating tags do not move) and the documentation under `/statica/next/`.
 4. If the candidate has problems, fix them with normal pull requests and run step 2 again. When it is good, release as above: the final version comes from the current `main`.
 
-Candidates do not go through release-please, so on `main` `CHANGELOG.md` and the version references in the documentation keep showing the last release. The documentation built for the candidate, under `/statica/next/`, shows the candidate's version in every image tag and installation command. A candidate cut before the first release, such as `1.0.0-rc.1`, is published, but the **Documentation site** job fails: the site root is built from the latest release, and there is none yet. Its documentation is never published: once the first release exists, the candidate is older than it, and `/statica/next/` only holds a candidate newer than the latest release.
-
+Candidates do not go through release-please, so on `main` `CHANGELOG.md` and the version references in the documentation keep showing the last release. The documentation built for the candidate, under `/statica/next/`, shows the candidate's version in every image tag and installation command.
 ## Fix a version or a changelog entry
 
 - **A merged pull request has the wrong title** (a missing `!`, a `feat` that was a `fix`): edit the description of that merged pull request and add, at the end:

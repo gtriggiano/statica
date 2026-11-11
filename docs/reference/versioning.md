@@ -1,6 +1,6 @@
 # Versioning
 
-statica follows [Semantic Versioning 2.0.0](https://semver.org/). A version number `X.Y.Z` says what a release can break, compared to the previous one, in statica's public interface.
+statica follows [Semantic Versioning 2.0.0](https://semver.org/), applied to the public interface below. Before you move to a new major version, read the **⚠ BREAKING CHANGES** section of the [changelog](./changelog.md): each breaking change there says how to migrate.
 
 ## Public interface
 
@@ -15,16 +15,6 @@ These are the public interface. An incompatible change to any of them is a break
 - **The names of the release assets**, which installation scripts depend on.
 
 These are not: the Go packages in the repository, which are internal, the wording of the documentation, performance, and the exact text of error messages on standard error.
-
-## What a version number means
-
-| Change | Example | What it contains |
-| --- | --- | --- |
-| Patch | `1.4.2` → `1.4.3` | Fixes, performance improvements and dependency updates, with no change to the public interface |
-| Minor | `1.4.2` → `1.5.0` | New features, compatible with existing configurations and integrations |
-| Major | `1.4.2` → `2.0.0` | Breaking changes |
-
-A breaking change comes only with a new major version: read the **⚠ BREAKING CHANGES** section of the [changelog](./changelog.md) before you move to a new major version. Each breaking change there says how to migrate.
 
 ## Release candidates
 
