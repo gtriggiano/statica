@@ -138,7 +138,7 @@ func (c *Config) validate() error {
 	}
 	for i, r := range c.CacheControl.Rules {
 		p := fmt.Sprintf("cache_control.rules[%d]", i)
-		if err := c.validateMatch(p+".match", r.Match, false); err != nil {
+		if err := c.validateMatch(p+".match", &c.CacheControl.Rules[i].Match, false); err != nil {
 			return err
 		}
 		if !validCacheControl(r.Value) {
@@ -369,7 +369,7 @@ func (c *Config) validateCache() error {
 	}
 	for i, r := range k.Rules {
 		p := fmt.Sprintf("cache.rules[%d]", i)
-		if err := c.validateMatch(p+".match", r.Match, true); err != nil {
+		if err := c.validateMatch(p+".match", &c.Cache.Rules[i].Match, true); err != nil {
 			return err
 		}
 		for _, v := range []struct {
@@ -403,11 +403,23 @@ func validRequestDirectives(s string) bool {
 	return s == RequestDirectivesHonor || s == RequestDirectivesRevalidateOnly || s == RequestDirectivesIgnore
 }
 
-func (c *Config) validateMatch(p string, m Match, objectPaths bool) error {
-	if c.present(p+".exact") == c.present(p+".prefix") {
-		return c.err(p, "require exactly one of exact or prefix")
+// maxMatchRegexBytes caps the pattern of a rule's match.regex.
+const maxMatchRegexBytes = 1024
+
+// validateMatch checks m and compiles its regex, so that matching never
+// compiles anything.
+func (c *Config) validateMatch(p string, m *Match, objectPaths bool) error {
+	keys := 0
+	for _, key := range []string{"exact", "prefix", "regex"} {
+		if c.present(p + "." + key) {
+			keys++
+		}
 	}
-	if c.present(p + ".exact") {
+	if keys != 1 {
+		return c.err(p, "require exactly one of exact, prefix or regex")
+	}
+	switch {
+	case c.present(p + ".exact"):
 		if !canonicalPath(m.Exact) {
 			return c.err(p+".exact", "expected a canonical absolute object path")
 		}
@@ -416,15 +428,38 @@ func (c *Config) validateMatch(p string, m Match, objectPaths bool) error {
 		if objectPaths && strings.HasSuffix(m.Exact, "/") {
 			return c.err(p+".exact", "object paths never end in /; match the index object instead")
 		}
-	} else if !canonicalPrefix(m.Prefix) {
-		return c.err(p+".prefix", "expected a canonical absolute directory prefix")
+	case c.present(p + ".prefix"):
+		if !canonicalPrefix(m.Prefix) {
+			return c.err(p+".prefix", "expected a canonical absolute directory prefix")
+		}
+	default:
+		if m.Regex == "" {
+			return c.err(p+".regex", "must not be empty")
+		}
+		if len(m.Regex) > maxMatchRegexBytes {
+			return c.err(p+".regex", fmt.Sprintf("exceeds %d bytes", maxMatchRegexBytes))
+		}
+		// The pattern must parse on its own, so that it cannot close the
+		// anchoring group: a)|(b would otherwise match unanchored. The
+		// regexp error quotes the pattern and is never reported.
+		if _, err := regexp.Compile(m.Regex); err != nil {
+			return c.err(p+".regex", "invalid full-string RE2 pattern")
+		}
+		re, err := regexp.Compile(`\A(?:` + m.Regex + `)\z`)
+		if err != nil {
+			return c.err(p+".regex", "invalid full-string RE2 pattern")
+		}
+		m.re = re
 	}
 	return nil
 }
 
 func matches(m Match, p string) bool {
-	if m.Exact != "" {
+	switch {
+	case m.Exact != "":
 		return m.Exact == p
+	case m.Regex != "":
+		return m.re.MatchString(p)
 	}
 	return m.Prefix == "/" || p == strings.TrimSuffix(m.Prefix, "/") || strings.HasPrefix(p, m.Prefix)
 }
