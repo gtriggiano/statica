@@ -31,7 +31,7 @@ These settings are in place; check them when something behaves unexpectedly.
 
 ## Release a new version
 
-1. Merge pull requests as usual. The Release PR updates itself.
+1. Merge pull requests as usual. The Release PR updates itself: release-please rebuilds it on every push to `main` (`always-update` in `release-please-config.json`), also when the push changes nothing in the changelog, so it never falls behind `main`.
 2. When you want to release, open the Release PR and check:
    - the **version** in the title;
    - the new section of **`CHANGELOG.md`**; to fix an entry, see [Fix a version or a changelog entry](#fix-a-version-or-a-changelog-entry);
