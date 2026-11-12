@@ -39,11 +39,11 @@ Check that statica can read `index.html`, then start the server with the contain
 ```sh
 docker run --rm -v "$PWD/config.yaml:/etc/statica/config.yaml:ro" \
   -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY \
-  ghcr.io/gtriggiano/statica:1.0.0 config check-origin
+  ghcr.io/gtriggiano/statica:1.1.0 config check-origin
 docker run --rm --read-only -p 8080:8080 \
   -v "$PWD/config.yaml:/etc/statica/config.yaml:ro" \
   -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY \
-  ghcr.io/gtriggiano/statica:1.0.0
+  ghcr.io/gtriggiano/statica:1.1.0
 ```
 <!-- x-release-please-end -->
 
