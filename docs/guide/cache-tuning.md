@@ -67,7 +67,9 @@ statica_cache_limit_bytes + statica_cache_fill_limit_bytes
 
 A fresh entry is served without asking the origin. An expired entry is revalidated before its next use: with its `ETag` when [`s3.features.conditional_reads`](../reference/configuration.md#s3-features-conditional-reads) allows it, so an unchanged object costs a 304 instead of a new download.
 
-- [`cache.ttl`](../reference/configuration.md#cache-ttl) (`5m`) is the longest an object stays fresh. An origin `Cache-Control` (`s-maxage`, `max-age`, `no-cache`) or `Expires` can shorten it, never extend it ([lifetime](../architecture/memory-cache.md#lifetime)).
+- [`cache.ttl`](../reference/configuration.md#cache-ttl) (`5m`) is how long an object stays fresh. With the default `cache.ttl_mode`, it is the longest: an origin `Cache-Control` (`s-maxage`, `max-age`, `no-cache`) or `Expires` can shorten it, never extend it ([lifetime](../architecture/memory-cache.md#lifetime)).
+- [`cache.ttl_mode`](../reference/configuration.md#cache-ttl-mode) (`ceiling`) sets the role of the TTL against the origin's lifetime. `fixed` makes the TTL apply whatever the origin's metadata says: use it for objects uploaded with `Cache-Control: no-cache` that you still want statica to keep, since otherwise every request for them revalidates with the origin. `floor` and `fallback` let an object's `max-age` keep it longer than the TTL: use them only when the origin's lifetimes match how you publish.
+- [`cache.request_directives`](../reference/configuration.md#cache-request-directives) (`honor`) decides whether a client's `Cache-Control: no-store`, `no-cache` or `max-age` can make statica read the origin. With `ignore`, browser reloads are served from memory too.
 - [`cache.rules`](../reference/configuration.md#cache-rules) set other values by object path: the first matching rule applies.
 - [`cache.negative_ttl`](../reference/configuration.md#cache-negative-ttl) (`5s`) is how long a missing object is remembered. A longer value spares the origin repeated requests for missing URLs; a shorter one makes a newly published object visible sooner.
 
@@ -245,7 +247,8 @@ sum by (purpose) (rate(statica_origin_operations_total[5m]))
 
 - **Small entries fill `max_entries` first.** Metadata and negative entries pay the same 640-byte overhead as bodies. Scanners requesting many missing URLs create one negative entry per key tried.
 - **Every instance has its own cache.** Instances share neither entries nor fills, and a restart empties the cache.
-- **Request directives.** A client that sends `Cache-Control: no-cache` or `max-age=0` makes statica revalidate the entry with the origin, and `no-store` bypasses the cache ([request directives](../architecture/memory-cache.md#request-directives)).
+- **Request directives.** With the default `cache.request_directives`, a client that sends `Cache-Control: no-cache` or `max-age=0` makes statica revalidate the entry with the origin, and `no-store` bypasses the cache. Browsers send `max-age=0` or `no-cache` on reloads and while their developer tools disable the cache ([request directives](../architecture/memory-cache.md#request-directives)).
+- **Origin `no-cache`.** With the default `cache.ttl_mode`, an object uploaded with `Cache-Control: no-cache` is checked with the origin on every request: the access log shows `cache=revalidated`, or `cache=miss` without conditional reads.
 
 ## Related pages
 

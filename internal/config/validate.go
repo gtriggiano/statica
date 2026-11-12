@@ -361,6 +361,12 @@ func (c *Config) validateCache() error {
 			return c.err("cache."+v.p, "must be zero or positive")
 		}
 	}
+	if !validTTLMode(k.TTLMode) {
+		return c.err("cache.ttl_mode", ttlModeProblem)
+	}
+	if !validRequestDirectives(k.RequestDirectives) {
+		return c.err("cache.request_directives", requestDirectivesProblem)
+	}
 	for i, r := range k.Rules {
 		p := fmt.Sprintf("cache.rules[%d]", i)
 		if err := c.validateMatch(p+".match", r.Match, true); err != nil {
@@ -374,8 +380,27 @@ func (c *Config) validateCache() error {
 				return c.err(p+"."+v.p, "must be zero or positive")
 			}
 		}
+		if r.TTLMode != nil && !validTTLMode(*r.TTLMode) {
+			return c.err(p+".ttl_mode", ttlModeProblem)
+		}
+		if r.RequestDirectives != nil && !validRequestDirectives(*r.RequestDirectives) {
+			return c.err(p+".request_directives", requestDirectivesProblem)
+		}
 	}
 	return nil
+}
+
+const (
+	ttlModeProblem           = "must be ceiling, floor, fallback or fixed"
+	requestDirectivesProblem = "must be honor, revalidate_only or ignore"
+)
+
+func validTTLMode(s string) bool {
+	return s == TTLModeCeiling || s == TTLModeFloor || s == TTLModeFallback || s == TTLModeFixed
+}
+
+func validRequestDirectives(s string) bool {
+	return s == RequestDirectivesHonor || s == RequestDirectivesRevalidateOnly || s == RequestDirectivesIgnore
 }
 
 func (c *Config) validateMatch(p string, m Match, objectPaths bool) error {
@@ -406,7 +431,7 @@ func matches(m Match, p string) bool {
 
 // PolicyFor selects the first matching object rule. Global disablement always wins.
 func (c Cache) PolicyFor(path string) CachePolicy {
-	p := CachePolicy{c.Enabled, c.TTL, c.NegativeTTL, c.StaleIfError}
+	p := CachePolicy{Enabled: c.Enabled, TTL: c.TTL, TTLMode: c.TTLMode, NegativeTTL: c.NegativeTTL, StaleIfError: c.StaleIfError, RequestDirectives: c.RequestDirectives}
 	for _, r := range c.Rules {
 		if !matches(r.Match, path) {
 			continue
@@ -417,11 +442,17 @@ func (c Cache) PolicyFor(path string) CachePolicy {
 		if r.TTL != nil {
 			p.TTL = *r.TTL
 		}
+		if r.TTLMode != nil {
+			p.TTLMode = *r.TTLMode
+		}
 		if r.NegativeTTL != nil {
 			p.NegativeTTL = *r.NegativeTTL
 		}
 		if r.StaleIfError != nil {
 			p.StaleIfError = *r.StaleIfError
+		}
+		if r.RequestDirectives != nil {
+			p.RequestDirectives = *r.RequestDirectives
 		}
 		break
 	}

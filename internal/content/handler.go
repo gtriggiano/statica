@@ -209,6 +209,14 @@ func NewHandler(cfg *config.Config, reader storage.Reader, options ...HandlerOpt
 			value := *r.StaleIfError
 			r.StaleIfError = &value
 		}
+		if r.TTLMode != nil {
+			value := *r.TTLMode
+			r.TTLMode = &value
+		}
+		if r.RequestDirectives != nil {
+			value := *r.RequestDirectives
+			r.RequestDirectives = &value
+		}
 	}
 	h.cacheControl.Rules = append([]config.CacheControlRule(nil), cfg.CacheControl.Rules...)
 	for _, option := range options {
@@ -359,10 +367,9 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if revision == 1 && h.memory != nil {
 			// The object changed since its selection. A metadata entry still
 			// in memory would select the same revision again: the retry
-			// revalidates every lookup with the origin instead.
-			directives := httpcache.RequestDirectives(r.Header)
-			directives.NoCache = true
-			ctx = cache.WithRequest(ctx, directives)
+			// revalidates every lookup with the origin instead, whatever the
+			// object's request_directives.
+			ctx = cache.WithRevalidation(ctx, httpcache.RequestDirectives(r.Header))
 		}
 		selection, err := h.resolver.Resolve(ctx, req)
 		if h.memory != nil {

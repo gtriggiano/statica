@@ -323,22 +323,26 @@ func TestRangeBodyReadChecksTheSelectedRevision(t *testing.T) {
 		}
 		r.origin.take()
 	}
-	t.Run("changed after its metadata entry", func(t *testing.T) {
-		r := newRangeRig(t, false, nil)
-		warm(t, r)
-		r.origin.set("file.txt", memObject{"HELLO WORLD", fixtureMeta(`"f2"`, "", 0)})
-		w := r.get("/file.txt", "Range", "bytes=4-7")
-		if w.status != 206 || w.body != "O WO" || w.header.Get("ETag") != `"f2"` || w.header.Get("Content-Range") != "bytes 4-7/11" {
-			t.Fatalf("retry %d %q %v", w.status, w.body, w.header)
-		}
-		// The fill read f2 against f1 metadata; the retry refreshes the
-		// metadata with a HEAD and revalidates the new body.
-		r.expectCalls(t, "retry", "GET file.txt", "HEAD file.txt", `GET file.txt if-none-match="f2"`)
-		if w := r.get("/file.txt", "Range", "bytes=4-7"); w.status != 206 || w.body != "O WO" || r.o.CacheOutcome != cache.OutcomeHit {
-			t.Fatalf("after retry %d %q %+v", w.status, w.body, *r.o)
-		}
-		r.expectCalls(t, "after retry")
-	})
+	// The retry revalidates even when the object's request_directives
+	// ignore the client's: the demand is statica's own.
+	for _, directives := range []string{config.RequestDirectivesHonor, config.RequestDirectivesIgnore} {
+		t.Run("changed after its metadata entry with request_directives "+directives, func(t *testing.T) {
+			r := newRangeRig(t, false, func(c *config.Config) { c.Cache.RequestDirectives = directives })
+			warm(t, r)
+			r.origin.set("file.txt", memObject{"HELLO WORLD", fixtureMeta(`"f2"`, "", 0)})
+			w := r.get("/file.txt", "Range", "bytes=4-7")
+			if w.status != 206 || w.body != "O WO" || w.header.Get("ETag") != `"f2"` || w.header.Get("Content-Range") != "bytes 4-7/11" {
+				t.Fatalf("retry %d %q %v", w.status, w.body, w.header)
+			}
+			// The fill read f2 against f1 metadata; the retry refreshes the
+			// metadata with a HEAD and revalidates the new body.
+			r.expectCalls(t, "retry", "GET file.txt", "HEAD file.txt", `GET file.txt if-none-match="f2"`)
+			if w := r.get("/file.txt", "Range", "bytes=4-7"); w.status != 206 || w.body != "O WO" || r.o.CacheOutcome != cache.OutcomeHit {
+				t.Fatalf("after retry %d %q %+v", w.status, w.body, *r.o)
+			}
+			r.expectCalls(t, "after retry")
+		})
+	}
 	t.Run("changed twice", func(t *testing.T) {
 		cfg := cachedConfig(t, nil)
 		origin := newMemOrigin()

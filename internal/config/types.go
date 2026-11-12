@@ -102,10 +102,36 @@ type Cache struct {
 	MaxWaitersPerKey   int           `yaml:"max_waiters_per_key"`
 	FillTimeout        time.Duration `yaml:"fill_timeout"`
 	TTL                time.Duration `yaml:"ttl"`
+	TTLMode            string        `yaml:"ttl_mode"`
 	NegativeTTL        time.Duration `yaml:"negative_ttl"`
 	StaleIfError       time.Duration `yaml:"stale_if_error"`
+	RequestDirectives  string        `yaml:"request_directives"`
 	Rules              []CacheRule   `yaml:"rules,omitempty"`
 }
+
+// The values of cache.ttl_mode: the role of the TTL against the freshness
+// lifetime the origin assigns, where an origin no-cache assigns zero. The TTL
+// applies alone when the origin assigns none. TTLModeCeiling caps the origin's
+// lifetime at the TTL, TTLModeFloor raises it to the TTL, TTLModeFallback
+// keeps it. With TTLModeFixed the origin's freshness is ignored altogether:
+// the TTL alone decides, counted from the response time.
+const (
+	TTLModeCeiling  = "ceiling"
+	TTLModeFloor    = "floor"
+	TTLModeFallback = "fallback"
+	TTLModeFixed    = "fixed"
+)
+
+// The values of cache.request_directives: which request Cache-Control
+// directives the memory cache applies. RequestDirectivesHonor applies
+// no-store, no-cache and max-age; RequestDirectivesRevalidateOnly drops
+// no-store, so a client can force a revalidation but never a bypass;
+// RequestDirectivesIgnore drops all three.
+const (
+	RequestDirectivesHonor          = "honor"
+	RequestDirectivesRevalidateOnly = "revalidate_only"
+	RequestDirectivesIgnore         = "ignore"
+)
 
 type Match struct {
 	Exact  string `yaml:"exact,omitempty"`
@@ -113,18 +139,25 @@ type Match struct {
 }
 
 type CacheRule struct {
-	Match        Match          `yaml:"match"`
-	Enabled      *bool          `yaml:"enabled,omitempty"`
-	TTL          *time.Duration `yaml:"ttl,omitempty"`
-	NegativeTTL  *time.Duration `yaml:"negative_ttl,omitempty"`
-	StaleIfError *time.Duration `yaml:"stale_if_error,omitempty"`
+	Match             Match          `yaml:"match"`
+	Enabled           *bool          `yaml:"enabled,omitempty"`
+	TTL               *time.Duration `yaml:"ttl,omitempty"`
+	TTLMode           *string        `yaml:"ttl_mode,omitempty"`
+	NegativeTTL       *time.Duration `yaml:"negative_ttl,omitempty"`
+	StaleIfError      *time.Duration `yaml:"stale_if_error,omitempty"`
+	RequestDirectives *string        `yaml:"request_directives,omitempty"`
 }
 
+// CachePolicy is the effective memory cache policy of one object. An empty
+// TTLMode means TTLModeCeiling and an empty RequestDirectives means
+// RequestDirectivesHonor, so a zero-valued mode keeps the defaults.
 type CachePolicy struct {
-	Enabled      bool
-	TTL          time.Duration
-	NegativeTTL  time.Duration
-	StaleIfError time.Duration
+	Enabled           bool
+	TTL               time.Duration
+	TTLMode           string
+	NegativeTTL       time.Duration
+	StaleIfError      time.Duration
+	RequestDirectives string
 }
 
 type Errors struct {
@@ -165,7 +198,7 @@ func defaults() *Config {
 		Server: Server{Listen: "127.0.0.1:8080", ClientIPHeader: "X-Forwarded-For", RequestIDHeader: "X-Request-ID", MaxForwardedHops: 16, ReadHeaderTimeout: 5 * time.Second, ResponseHeaderTimeout: 30 * time.Second, WriteIdleTimeout: 60 * time.Second, IdleTimeout: 60 * time.Second, ShutdownTimeout: 30 * time.Second, MaxHeaderBytes: 32768, MaxConnections: 1024, MaxConcurrentRequests: 256, TrustedProxies: []string{}},
 		Admin:  Admin{Listen: "127.0.0.1:9090"},
 		S3:     S3{ResponseHeaderTimeout: 10 * time.Second, ReadIdleTimeout: 30 * time.Second, MaxAttempts: 2, Features: Features{ConditionalReads: true, RangeReads: true}},
-		Cache:  Cache{Enabled: true, MaxBytes: 128 << 20, MaxEntries: 10000, MaxObjectBytes: 2 << 20, MaxFillBytes: 32 << 20, MaxConcurrentFills: 16, MaxWaitersPerKey: 64, FillTimeout: 30 * time.Second, TTL: 5 * time.Minute, NegativeTTL: 5 * time.Second},
+		Cache:  Cache{Enabled: true, MaxBytes: 128 << 20, MaxEntries: 10000, MaxObjectBytes: 2 << 20, MaxFillBytes: 32 << 20, MaxConcurrentFills: 16, MaxWaitersPerKey: 64, FillTimeout: 30 * time.Second, TTL: 5 * time.Minute, TTLMode: TTLModeCeiling, NegativeTTL: 5 * time.Second, RequestDirectives: RequestDirectivesHonor},
 		Index:  "index.html", Errors: Errors{AccessDenied: "not_found"}, Headers: Headers{Set: map[string]string{}}, CacheControl: CacheControl{Default: "auto"}, Compression: Compression{Mode: "off"},
 		Observability: Observability{LogLevel: "info", AccessLog: true, LogClientIP: true, RedactQueryParams: []string{"token", "access_token", "api_key", "password", "secret", "signature", "X-Amz-Credential", "X-Amz-Signature", "X-Amz-Security-Token"}},
 		tainted:       map[string]bool{}, nodes: map[string]location{},

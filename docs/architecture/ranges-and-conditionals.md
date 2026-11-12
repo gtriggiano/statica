@@ -104,7 +104,7 @@ Then statica:
 3. checks that the encoding is unchanged and that `If-Range`, if present, still matches;
 4. answers 206 with the metadata of the ranged response, which can carry metadata changes that did not alter the ETag, after evaluating the preconditions again against it.
 
-If the object changed after its selection (the origin rejects `If-Match`, the encoding differs, `If-Range` no longer matches, or the whole object read for a 200 or a slice has another ETag or encoding than the selected metadata), statica restarts the whole resolution once. That second resolution revalidates every memory cache lookup with the origin, as a request with `Cache-Control: no-cache` would, so metadata held in memory cannot select the replaced revision again. If the object changes again, the answer is 503 Service Unavailable, logged with `error_class=origin_inconsistent`.
+If the object changed after its selection (the origin rejects `If-Match`, the encoding differs, `If-Range` no longer matches, or the whole object read for a 200 or a slice has another ETag or encoding than the selected metadata), statica restarts the whole resolution once. That second resolution revalidates every memory cache lookup with the origin, as a request with `Cache-Control: no-cache` would, even when `cache.request_directives` ignores that directive, so metadata held in memory cannot select the replaced revision again. If the object changes again, the answer is 503 Service Unavailable, logged with `error_class=origin_inconsistent`.
 
 When any condition is missing, statica ignores `Range` and streams the complete object with 200. It never reads a large object into memory to make a range possible.
 

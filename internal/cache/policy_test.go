@@ -291,6 +291,210 @@ func TestStaleIfErrorDirectives(t *testing.T) {
 	}
 }
 
+func TestTTLModesCombineTheOriginLifetime(t *testing.T) {
+	const ttl = 5 * time.Minute
+	modes := []string{"", config.TTLModeCeiling, config.TTLModeFloor, config.TTLModeFallback, config.TTLModeFixed}
+	for _, tc := range []struct {
+		name string
+		ttl  time.Duration
+		m    storage.Metadata
+		want [5]time.Duration // by mode, in the order of modes
+	}{
+		{"no origin lifetime", ttl, storage.Metadata{}, [5]time.Duration{ttl, ttl, ttl, ttl, ttl}},
+		{"shorter max-age", ttl, originCC("max-age=60"), [5]time.Duration{time.Minute, time.Minute, ttl, time.Minute, ttl}},
+		{"longer max-age", ttl, originCC("max-age=3600"), [5]time.Duration{ttl, ttl, time.Hour, time.Hour, ttl}},
+		{"s-maxage over max-age", ttl, originCC("max-age=3600, s-maxage=30"), [5]time.Duration{30 * time.Second, 30 * time.Second, ttl, 30 * time.Second, ttl}},
+		{"no-cache", ttl, originCC("no-cache"), [5]time.Duration{0, 0, ttl, 0, ttl}},
+		{"no-cache over max-age", ttl, originCC("no-cache, max-age=3600"), [5]time.Duration{0, 0, ttl, 0, ttl}},
+		{"max-age zero", ttl, originCC("max-age=0"), [5]time.Duration{0, 0, ttl, 0, ttl}},
+		{"past expires", ttl, storage.Metadata{RawDate: originDate(0), Expires: originDate(-time.Hour)}, [5]time.Duration{0, 0, ttl, 0, ttl}},
+		{"later expires", ttl, storage.Metadata{RawDate: originDate(0), Expires: originDate(time.Hour)}, [5]time.Duration{ttl, ttl, time.Hour, time.Hour, ttl}},
+		{"saturated max-age", ttl, originCC("max-age=99999999999999999999"), [5]time.Duration{ttl, ttl, httpcache.MaxDelta * time.Second, httpcache.MaxDelta * time.Second, ttl}},
+		{"zero ttl", 0, storage.Metadata{}, [5]time.Duration{0, 0, 0, 0, 0}},
+		{"zero ttl with max-age", 0, originCC("max-age=3600"), [5]time.Duration{0, 0, time.Hour, time.Hour, 0}},
+		{"zero ttl with no-cache", 0, originCC("no-cache"), [5]time.Duration{0, 0, 0, 0, 0}},
+	} {
+		for i, mode := range modes {
+			p := policyWith(testPolicy, func(p *config.CachePolicy) { p.TTL, p.TTLMode = tc.ttl, mode })
+			for _, kind := range []Kind{KindBody, KindMetadata} {
+				f := Evaluate(p, httpcache.Request{}, policySnap(kind, tc.m), policyT0)
+				want := tc.want[i]
+				wantState := StateStale
+				if want > 0 {
+					wantState = StateFresh
+				}
+				if f.Lifetime != want || f.State != wantState || f.Remaining != want {
+					t.Errorf("%s, ttl_mode %q, %s: Evaluate = %+v, want lifetime %v and %s", tc.name, mode, kind, f, want, wantState)
+				}
+			}
+		}
+	}
+}
+
+func TestOriginTTLModesUseTheRFCAge(t *testing.T) {
+	// floor and fallback read the origin's freshness, so its Age counts as with ceiling.
+	for _, mode := range []string{config.TTLModeCeiling, config.TTLModeFloor, config.TTLModeFallback} {
+		p := policyWith(testPolicy, func(p *config.CachePolicy) { p.TTLMode = mode })
+		f := Evaluate(p, httpcache.Request{}, policySnap(KindBody, storage.Metadata{CacheControl: "max-age=900", RawAge: "240"}), policyT0.Add(time.Minute))
+		if f.Age != 5*time.Minute {
+			t.Errorf("ttl_mode %s: age %v, want 5m", mode, f.Age)
+		}
+	}
+}
+
+func TestFixedTTLModeIgnoresOriginFreshness(t *testing.T) {
+	fixed := policyWith(testPolicy, func(p *config.CachePolicy) { p.TTLMode = config.TTLModeFixed })
+	zeroTTL := policyWith(fixed, func(p *config.CachePolicy) { p.TTL = 0 })
+	for _, tc := range []struct {
+		name string
+		p    config.CachePolicy
+		kind Kind
+		m    storage.Metadata
+		want time.Duration
+	}{
+		{"ttl without origin lifetime", fixed, KindBody, storage.Metadata{}, 5 * time.Minute},
+		{"origin no-cache", fixed, KindBody, originCC("no-cache"), 5 * time.Minute},
+		{"origin max-age zero", fixed, KindBody, originCC("max-age=0, must-revalidate"), 5 * time.Minute},
+		{"origin max-age never shortens ttl", fixed, KindBody, originCC("max-age=60"), 5 * time.Minute},
+		{"origin max-age never extends ttl", fixed, KindBody, originCC("max-age=3600"), 5 * time.Minute},
+		{"origin s-maxage", fixed, KindBody, originCC("s-maxage=30"), 5 * time.Minute},
+		{"origin past expires", fixed, KindBody, storage.Metadata{RawDate: originDate(0), Expires: originDate(-time.Hour)}, 5 * time.Minute},
+		{"metadata only", fixed, KindMetadata, originCC("no-cache"), 5 * time.Minute},
+		{"zero ttl", zeroTTL, KindBody, originCC("max-age=3600"), 0},
+		{"negative keeps negative ttl", fixed, KindNegative, storage.Metadata{}, 5 * time.Second},
+	} {
+		f := Evaluate(tc.p, httpcache.Request{}, policySnap(tc.kind, tc.m), policyT0)
+		wantState := StateStale
+		if tc.want > 0 {
+			wantState = StateFresh
+		}
+		if f.Lifetime != tc.want || f.Age != 0 || f.State != wantState || f.Remaining != tc.want {
+			t.Errorf("%s: Evaluate = %+v, want lifetime %v and %s", tc.name, f, tc.want, wantState)
+		}
+	}
+	// The origin still decides what may be stored.
+	for name, tc := range map[string]struct {
+		m    storage.Metadata
+		want Admission
+	}{
+		"origin no-store":    {originCC("no-store"), AdmissionNoStore},
+		"origin private":     {originCC("private, max-age=60"), AdmissionPrivate},
+		"malformed metadata": {originCC("max-age=-1"), AdmissionMalformed},
+	} {
+		if got := Admissible(fixed, httpcache.Request{}, policySnap(KindBody, tc.m)); got != tc.want {
+			t.Errorf("%s: Admissible = %s, want %s", name, got, tc.want)
+		}
+	}
+}
+
+func TestFixedTTLModeCountsFromResponseTime(t *testing.T) {
+	fixed := policyWith(testPolicy, func(p *config.CachePolicy) { p.TTLMode = config.TTLModeFixed })
+	for _, tc := range []struct {
+		name string
+		m    storage.Metadata
+		at   time.Duration
+		want Freshness
+	}{
+		{"origin age ignored", storage.Metadata{RawAge: "600"}, 4 * time.Minute, Freshness{StateFresh, 4 * time.Minute, 5 * time.Minute, time.Minute}},
+		{"origin date ignored", storage.Metadata{RawDate: originDate(-time.Hour)}, time.Minute, Freshness{StateFresh, time.Minute, 5 * time.Minute, 4 * time.Minute}},
+		{"age equals ttl", storage.Metadata{}, 5 * time.Minute, Freshness{StateStale, 5 * time.Minute, 5 * time.Minute, 0}},
+		{"clock behind response", storage.Metadata{}, -time.Hour, Freshness{StateFresh, 0, 5 * time.Minute, 5 * time.Minute}},
+	} {
+		if got := Evaluate(fixed, httpcache.Request{}, policySnap(KindBody, tc.m), policyT0.Add(tc.at)); got != tc.want {
+			t.Errorf("%s: Evaluate = %+v, want %+v", tc.name, got, tc.want)
+		}
+	}
+	// A request max-age is compared with the age a response states, which
+	// the origin's Age still raises.
+	aged := policySnap(KindBody, storage.Metadata{RawAge: "600"})
+	if f := Evaluate(fixed, maxAge(60), aged, policyT0); f.State != StateStale || f.Age != 0 {
+		t.Errorf("request max-age=60 accepted a response stating Age 600: %+v", f)
+	}
+	if f := Evaluate(fixed, maxAge(3600), aged, policyT0); f.State != StateFresh {
+		t.Errorf("request max-age=3600 refused a response stating Age 600: %+v", f)
+	}
+	if f := Evaluate(fixed, httpcache.Request{NoCache: true}, aged, policyT0); f.State != StateStale {
+		t.Errorf("request no-cache reused an entry: %+v", f)
+	}
+}
+
+func TestStaleIfErrorFixedTTLMode(t *testing.T) {
+	outage := &storage.Error{Kind: storage.Timeout, Size: -1}
+	fixed := policyWith(testPolicy, func(p *config.CachePolicy) { p.TTLMode = config.TTLModeFixed })
+	stale := 5*time.Minute + 30*time.Second
+	for _, tc := range []struct {
+		name string
+		m    storage.Metadata
+		req  httpcache.Request
+		at   time.Duration
+		want bool
+	}{
+		{"origin must-revalidate", originCC("max-age=600, must-revalidate"), httpcache.Request{}, stale, true},
+		{"origin proxy-revalidate", originCC("max-age=600, proxy-revalidate"), httpcache.Request{}, stale, true},
+		{"origin no-cache", originCC("no-cache"), httpcache.Request{}, stale, true},
+		{"origin no-cache within ttl", originCC("no-cache"), httpcache.Request{}, 30 * time.Second, false},
+		{"origin s-maxage", originCC("s-maxage=1"), httpcache.Request{}, stale, true},
+		{"beyond window", originCC("no-cache"), httpcache.Request{}, 6*time.Minute + 1, false},
+		{"malformed metadata", originCC("max-age=600, max-age=600"), httpcache.Request{}, stale, false},
+		{"request no-cache", storage.Metadata{}, httpcache.Request{NoCache: true}, stale, false},
+	} {
+		if got := StaleIfError(fixed, tc.req, policySnap(KindBody, tc.m), policyT0.Add(tc.at), outage); got != tc.want {
+			t.Errorf("%s: StaleIfError = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestStaleIfErrorOriginTTLModes(t *testing.T) {
+	outage := &storage.Error{Kind: storage.Timeout, Size: -1}
+	for _, tc := range []struct {
+		mode string
+		m    storage.Metadata
+		at   time.Duration
+		want bool
+	}{
+		{config.TTLModeFloor, originCC("no-cache"), 5*time.Minute + 30*time.Second, false},
+		{config.TTLModeFloor, originCC("max-age=60, must-revalidate"), 5*time.Minute + 30*time.Second, false},
+		{config.TTLModeFloor, originCC("max-age=60"), 5*time.Minute + 30*time.Second, true},
+		{config.TTLModeFloor, originCC("max-age=600"), 10*time.Minute + 30*time.Second, true},
+		{config.TTLModeFloor, originCC("max-age=600"), 5*time.Minute + 30*time.Second, false}, // still fresh
+		{config.TTLModeFallback, originCC("max-age=60, proxy-revalidate"), 90 * time.Second, false},
+		{config.TTLModeFallback, originCC("s-maxage=60"), 90 * time.Second, false},
+		{config.TTLModeFallback, originCC("max-age=60"), 90 * time.Second, true},
+		{config.TTLModeFallback, originCC("max-age=60"), 2*time.Minute + 1, false}, // beyond the window
+	} {
+		p := policyWith(testPolicy, func(p *config.CachePolicy) { p.TTLMode = tc.mode })
+		if got := StaleIfError(p, httpcache.Request{}, policySnap(KindBody, tc.m), policyT0.Add(tc.at), outage); got != tc.want {
+			t.Errorf("ttl_mode %s, %q at %v: StaleIfError = %v, want %v", tc.mode, tc.m.CacheControl, tc.at, got, tc.want)
+		}
+	}
+}
+
+func TestAppliedRequestDirectives(t *testing.T) {
+	all := httpcache.Request{NoStore: true, NoCache: true, MaxAge: httpcache.Delta{Seconds: 0, Present: true}}
+	stale := maxAge(60)
+	for _, tc := range []struct {
+		name       string
+		directives string
+		req        httpcache.Request
+		revalidate bool
+		want       httpcache.Request
+	}{
+		{"unset honors", "", all, false, all},
+		{"honor", config.RequestDirectivesHonor, all, false, all},
+		{"revalidate_only drops no-store", config.RequestDirectivesRevalidateOnly, all, false, httpcache.Request{NoCache: true, MaxAge: all.MaxAge}},
+		{"revalidate_only keeps max-age", config.RequestDirectivesRevalidateOnly, stale, false, stale},
+		{"ignore", config.RequestDirectivesIgnore, all, false, httpcache.Request{}},
+		{"statica's revalidation under honor", config.RequestDirectivesHonor, stale, true, httpcache.Request{NoCache: true, MaxAge: stale.MaxAge}},
+		{"statica's revalidation under revalidate_only", config.RequestDirectivesRevalidateOnly, httpcache.Request{NoStore: true}, true, httpcache.Request{NoCache: true}},
+		{"statica's revalidation under ignore", config.RequestDirectivesIgnore, all, true, httpcache.Request{NoCache: true}},
+	} {
+		p := policyWith(testPolicy, func(p *config.CachePolicy) { p.RequestDirectives = tc.directives })
+		if got := applied(p, tc.req, tc.revalidate); got != tc.want {
+			t.Errorf("%s: applied = %+v, want %+v", tc.name, got, tc.want)
+		}
+	}
+}
+
 func TestStaleIfErrorCauses(t *testing.T) {
 	allowed := map[storage.Kind]bool{storage.Timeout: true, storage.Throttled: true, storage.Unavailable: true}
 	kinds := []storage.Kind{storage.NotFound, storage.AmbiguousNotFound, storage.Denied, storage.Configuration, storage.Unavailable,

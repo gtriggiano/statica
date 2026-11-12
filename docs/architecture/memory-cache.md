@@ -148,11 +148,26 @@ A body that ends early, runs long, fails while being read, fails its checksum or
 
 ### Lifetime
 
-The lifetime of a body or metadata entry is the object's effective [`cache.ttl`](../reference/configuration.md#cache-ttl), capped by the origin's own freshness lifetime: `s-maxage`, else `max-age`, else `Expires` minus the origin's `Date`. The origin can shorten the lifetime but never extend it. With origin `Cache-Control: no-cache`, or a `ttl` of `0s`, the lifetime is zero: the entry is stored, but every reuse revalidates it first.
+The lifetime of a body or metadata entry combines the object's effective [`cache.ttl`](../reference/configuration.md#cache-ttl) with the origin's own freshness lifetime: `s-maxage`, else `max-age`, else `Expires` minus the origin's `Date`, and zero with `Cache-Control: no-cache`. When the origin assigns no lifetime, the entry lives for the `ttl`. When it assigns one, the object's effective [`cache.ttl_mode`](../reference/configuration.md#cache-ttl-mode) gives the `ttl` its role: an upper bound (`ceiling`), a lower bound (`floor`), a value used only without an origin lifetime (`fallback`), or the lifetime itself (`fixed`).
 
-An entry is fresh while its age is below its lifetime. Its age is the current age that RFC 9111, section 4.2.3 defines. Take the larger of two values: the time from the origin's `Date` to the arrival of the response, and the origin's `Age` plus the request's round trip. Then add the time since the response arrived.
+With `ttl: 5m`:
 
-The object's effective policy comes from `cache.rules`: the first rule whose `match` covers the object path sets the fields it declares (`enabled`, `ttl`, `negative_ttl`, `stale_if_error`) over the global `cache` values. The object path is the object key relative to the publication prefix, with a leading slash: `/guide/index.html` for a request to `/guide/`, the shell's path for a single-page-app route, `/assets/app.js.br` for a Brotli variant. An `exact` rule therefore does not cover an object's precompressed variants. No rule can enable caching when `cache.enabled` is `false`.
+| Origin metadata | `ceiling` | `floor` | `fallback` | `fixed` |
+| --- | --- | --- | --- | --- |
+| none | 5 minutes | 5 minutes | 5 minutes | 5 minutes |
+| `max-age=60` | 1 minute | 5 minutes | 1 minute | 5 minutes |
+| `max-age=3600` | 5 minutes | 1 hour | 1 hour | 5 minutes |
+| `no-cache` | zero | 5 minutes | zero | 5 minutes |
+
+An entry with a zero lifetime is stored, but every reuse revalidates it first: an origin `no-cache` gives one with `ceiling` or `fallback`, and a `ttl` of `0s` with `ceiling` or `fixed`.
+
+::: warning
+With `floor` or `fallback`, the origin's metadata can keep an object fresh far longer than its `ttl`. With `max-age=31536000`, statica can serve its copy for a year without asking the origin: a changed object may not reach clients until a request forces a revalidation, the entry is evicted or the instance restarts.
+:::
+
+An entry is fresh while its age is below its lifetime. With `ceiling`, `floor` and `fallback`, its age is the current age that RFC 9111, section 4.2.3 defines. Take the larger of two values: the time from the origin's `Date` to the arrival of the response, and the origin's `Age` plus the request's round trip. Then add the time since the response arrived. With `fixed`, which ignores the origin's freshness altogether, its age is the time since the response arrived, so the origin's `Date` and `Age` cannot shorten its freshness. In every mode, a revalidation restarts the age, and the `Age` header of a response states the RFC 9111 current age ([Age](./cache-control.md#age)).
+
+The object's effective policy comes from `cache.rules`: the first rule whose `match` covers the object path sets the fields it declares (`enabled`, `ttl`, `ttl_mode`, `negative_ttl`, `stale_if_error`, `request_directives`) over the global `cache` values. The object path is the object key relative to the publication prefix, with a leading slash: `/guide/index.html` for a request to `/guide/`, the shell's path for a single-page-app route, `/assets/app.js.br` for a Brotli variant. An `exact` rule therefore does not cover an object's precompressed variants. No rule can enable caching when `cache.enabled` is `false`.
 
 ```yaml [config.yaml]
 cache:
@@ -168,11 +183,13 @@ cache:
 
 ### Origin directives
 
-- `no-store` and `private`, with or without field names: the object is never stored, and reads of it stream with reason `uncacheable`.
-- `no-cache`, with or without field names: the entry is stored with a zero lifetime. Whole responses are stored, so a `no-cache` that names fields counts as a plain `no-cache`.
-- `s-maxage`, `max-age` and `Expires`: cap the lifetime, as described above.
-- `must-revalidate`, `proxy-revalidate`, `no-cache` and `s-maxage`: prevent [stale-if-error](#stale-if-error).
+- `no-store` and `private`, with or without field names: the object is never stored, and reads of it stream with reason `uncacheable`. This holds with every `ttl_mode`.
+- `no-cache`, with or without field names: the origin's lifetime is zero, so the entry is stored with a zero lifetime with `ttl_mode` `ceiling` or `fallback`, and fresh for its `ttl` with `floor`. Whole responses are stored, so a `no-cache` that names fields counts as a plain `no-cache`.
+- `s-maxage`, `max-age` and `Expires`: set the origin's lifetime, which `ttl_mode` combines with the `ttl`, as described above.
+- `must-revalidate`, `proxy-revalidate`, `no-cache` and `s-maxage`: prevent [stale-if-error](#stale-if-error), except with `ttl_mode: fixed`.
 - `public`, `immutable`, `stale-if-error` and `stale-while-revalidate` change nothing. The configuration alone decides when stale content is served.
+
+With `ttl_mode: fixed`, only `no-store` and `private` count.
 
 ### Malformed origin metadata
 
@@ -193,6 +210,28 @@ All the `Cache-Control` lines of a request are read as one value:
 - `max-age=N`: the request revalidates an entry older than N seconds, in whole seconds as an `Age` header states them.
 
 When a request's `Cache-Control` is malformed, its `max-age` is ignored, but `no-store` and `no-cache` are still honored, since they can only make the request more careful. `Pragma`, `min-fresh` and `max-stale` are ignored.
+
+Each of these directives can make the request read the origin, so any client can cause origin requests with them. The object's effective [`cache.request_directives`](../reference/configuration.md#cache-request-directives) decides which ones apply:
+
+| `request_directives` | `no-store` | `no-cache`, `max-age` |
+| --- | --- | --- |
+| `honor` | applies | applies |
+| `revalidate_only` | ignored | applies |
+| `ignore` | ignored | ignored |
+
+An ignored directive changes nothing: the request uses and stores entries as a request without it would, and it no longer prevents [stale-if-error](#stale-if-error). When an object changes while statica selects it, the [retry](./ranges-and-conditionals.md#from-the-origin) revalidates every lookup whatever `request_directives` says.
+
+```yaml [config.yaml]
+cache:
+  rules:
+    - match:
+        prefix: /drafts/
+      ttl: 5m
+      ttl_mode: fixed
+      request_directives: ignore
+```
+
+With this rule, an object under `/drafts/` that statica stores is served from memory for five minutes after each origin read, even when its origin metadata says `no-cache` and clients send `Cache-Control: no-cache`.
 
 ## Revalidation
 
@@ -227,7 +266,7 @@ flowchart TD
 
 ## Negative entries
 
-A `GET` whose origin answer is a 404 with the error code `NoSuchKey` stores a negative entry for the key. It lives for the object's `negative_ttl` (`cache.negative_ttl`, or a rule's value) from the time of that answer. While it is fresh, `GET` and `HEAD` requests for the key are answered as missing without an origin read, and the access log shows `cache=negative_hit`. A request with `no-cache` or `max-age=0` asks the origin again. With a `negative_ttl` of `0s`, nothing is stored and an existing entry for the key is removed.
+A `GET` whose origin answer is a 404 with the error code `NoSuchKey` stores a negative entry for the key. It lives for the object's `negative_ttl` (`cache.negative_ttl`, or a rule's value) from the time of that answer. While it is fresh, `GET` and `HEAD` requests for the key are answered as missing without an origin read, and the access log shows `cache=negative_hit`. A request with `no-cache` or `max-age=0` asks the origin again, unless the object's `request_directives` is `ignore`. With a `negative_ttl` of `0s`, nothing is stored and an existing entry for the key is removed.
 
 Resolution reads one key per candidate, so one missing page can leave several negative entries. A request for `/about` that ends in the built-in 404 leaves entries for the keys of `/about` and `/about/index.html`, and with `compression.mode: precompressed` one for each variant it tried.
 
@@ -242,8 +281,8 @@ When the object's `stale_if_error` ([`cache.stale_if_error`](../reference/config
 - the entry is a body or metadata entry: negative entries are never served stale;
 - the entry is stale by its own lifetime, and its staleness, its age minus its lifetime, is at most `stale_if_error`;
 - the origin read that would revalidate the entry failed while the request was still waiting for it, with a timeout (an origin timeout or `cache.fill_timeout`), with throttling that persisted after the configured attempts, or with an unavailable origin: a 5xx, a network error, missing credentials, or any provider error without a more specific class, such as `ExpiredToken`, which AWS answers with 400;
-- the origin's `Cache-Control` for the entry has none of `must-revalidate`, `proxy-revalidate`, `no-cache` and `s-maxage`; a plain `max-age=0` does not prevent it;
-- the request does not force revalidation with `no-cache` or `max-age`, and does not carry `no-store`.
+- unless the object's `ttl_mode` is `fixed`, the origin's `Cache-Control` for the entry has none of `must-revalidate`, `proxy-revalidate`, `no-cache` and `s-maxage`; a plain `max-age=0` does not prevent it;
+- the request does not force revalidation with `no-cache` or `max-age`, and does not carry `no-store`, among the directives that its `request_directives` applies.
 
 A 403 (credential errors that the provider answers with 403 included), a confirmed or unconfirmed absence, an invalid response such as a body of the wrong length or a failed checksum, a cancellation, a bucket or endpoint error such as `NoSuchBucket`, and a credential error such as `InvalidAccessKeyId` answered with a status other than 403 never qualify. Serving a stale copy does not renew the entry: its expiry stays, and its `Age` keeps growing. The access log shows `cache=stale`.
 
@@ -271,7 +310,7 @@ A single range is cut from a complete body in memory, a fresh entry or a body th
 With both provider features enabled, a range request is decided on metadata first, read like a `HEAD`: from a fresh body or metadata entry, as `cache=metadata_hit`, or with a `HeadObject` whose answer is stored as a metadata entry. Then:
 
 - For an object up to `max_object_bytes` whose metadata read did not bypass the cache, statica reads the body with an ordinary `GET` through the cache: a fresh body entry, or a shared fill that reads the whole object, and the range is cut from that body. The access log records the outcome of that `GET`, such as `hit` or `miss`.
-- For a larger object, or one whose metadata read bypassed the cache, for example for a disabled rule, a request with `no-store` or an origin `no-store` or `private` policy, the range is read from the origin with a request guarded by `If-Match`. While the metadata entry of a larger object is fresh, each such range costs that one origin read, and the access log records `cache=metadata_hit`.
+- For a larger object, or one whose metadata read bypassed the cache, for example for a disabled rule, a request whose `no-store` applies or an origin `no-store` or `private` policy, the range is read from the origin with a request guarded by `If-Match`. While the metadata entry of a larger object is fresh, each such range costs that one origin read, and the access log records `cache=metadata_hit`.
 
 With either feature disabled, a range request reads the object like any `GET`, and a range is served only from a body in memory. [Ranges and conditional requests](./ranges-and-conditionals.md#where-a-range-comes-from) describes when each path applies, the 304, 412 and 416 answers decided on metadata alone, and how `Accept-Ranges` is chosen.
 
@@ -280,7 +319,7 @@ With either feature disabled, a range request reads the object like any `GET`, a
 A read that bypasses the cache goes to the origin within the request's own context, and nothing it reads is stored. `statica_cache_admissions_total{result="bypass"}` counts bypasses by `reason`, and the access log shows [`cache=bypass`](../reference/logs.md#cache) with the [`cache_reason`](../reference/logs.md#cache-reason) of the lookup that selected the object:
 
 - `disabled`: a `cache.rules` entry sets `enabled: false` for the object path;
-- `request_no_store`: the request carries `Cache-Control: no-store`;
+- `request_no_store`: the request carries `Cache-Control: no-store`, and its `request_directives` is `honor`;
 - `fills_full` and `waiters_full`: a fill limit is reached;
 - `unknown_size`, `too_large`, `uncacheable` and `fill_budget`: a shared fill streamed the object instead of storing it;
 - `shutdown`: the process is shutting down and starts no new fills.

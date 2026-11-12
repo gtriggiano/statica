@@ -40,7 +40,7 @@ func TestDefaultsAndExplicitValues(t *testing.T) {
 	if c.Server.Listen != "127.0.0.1:8080" || c.Admin.Listen != "127.0.0.1:9090" || c.Index != "index.html" || c.S3.Region != "" || c.S3.Prefix != "" {
 		t.Fatalf("wrong core defaults: %#v", c)
 	}
-	if !c.Cache.Enabled || c.Cache.MaxBytes != 128<<20 || c.Cache.MaxEntries != 10000 || c.Cache.MaxObjectBytes != 2<<20 || c.Cache.MaxFillBytes != 32<<20 || c.Cache.MaxConcurrentFills != 16 || c.Cache.MaxWaitersPerKey != 64 || c.Cache.FillTimeout != 30*time.Second || c.Cache.TTL != 5*time.Minute || c.Cache.NegativeTTL != 5*time.Second || c.Cache.StaleIfError != 0 {
+	if !c.Cache.Enabled || c.Cache.MaxBytes != 128<<20 || c.Cache.MaxEntries != 10000 || c.Cache.MaxObjectBytes != 2<<20 || c.Cache.MaxFillBytes != 32<<20 || c.Cache.MaxConcurrentFills != 16 || c.Cache.MaxWaitersPerKey != 64 || c.Cache.FillTimeout != 30*time.Second || c.Cache.TTL != 5*time.Minute || c.Cache.TTLMode != "ceiling" || c.Cache.NegativeTTL != 5*time.Second || c.Cache.StaleIfError != 0 || c.Cache.RequestDirectives != "honor" {
 		t.Fatalf("wrong cache defaults: %#v", c.Cache)
 	}
 	if c.Server.RequestTimeout != 0 || c.Server.ResponseHeaderTimeout != 30*time.Second || c.Server.WriteIdleTimeout != time.Minute || c.S3.ResponseHeaderTimeout != 10*time.Second || c.S3.ReadIdleTimeout != 30*time.Second || c.S3.MaxAttempts != 2 || !c.S3.Features.ConditionalReads || !c.S3.Features.RangeReads || c.S3.Features.Checksums {
@@ -141,6 +141,8 @@ func TestValidationFailures(t *testing.T) {
 		{"trustall", minimal + "server: {trusted_proxies: [0.0.0.0/0]}", "server.trusted_proxies[0]"}, {"trustall6", minimal + "server: {trusted_proxies: ['::/0']}", "server.trusted_proxies[0]"}, {"proxyip", minimal + "server: {trusted_proxies: [10.0.0.1]}", "server.trusted_proxies[0]"}, {"ipheader", minimal + "server: {client_ip_header: Forwarded}", "server.client_ip_header"}, {"requestid", minimal + "server: {request_id_header: Cookie}", "server.request_id_header"}, {"requestidip", minimal + "server: {request_id_header: X-Forwarded-For}", "server.request_id_header"}, {"requestidnewline", minimal + "server: {request_id_header: 'bad header'}", "server.request_id_header"}, {"hopszero", minimal + "server: {max_forwarded_hops: 0}", "server.max_forwarded_hops"},
 		{"requestnegative", minimal + "server: {request_timeout: -1s}", "server.request_timeout"}, {"preparationzero", minimal + "server: {response_header_timeout: 0s}", "server.response_header_timeout"}, {"readzero", minimal + "server: {read_header_timeout: 0s}", "server.read_header_timeout"}, {"fillzero", minimal + "cache: {fill_timeout: 0s}", "cache.fill_timeout"}, {"capacityzero", minimal + "cache: {max_entries: 0}", "cache.max_entries"}, {"oversizeobject", minimal + "cache: {max_bytes: 1MiB}", "cache.max_object_bytes"}, {"oversizefill", minimal + "cache: {max_fill_bytes: 1MiB}", "cache.max_object_bytes"}, {"negativettl", minimal + "cache: {ttl: -1s}", "cache.ttl"},
 		{"missingmatch", minimal + "cache: {rules: [{ttl: 1m}]}", "cache.rules[0].match"}, {"bothmatch", minimal + "cache: {rules: [{match: {exact: /a, prefix: /a/}}]}", "cache.rules[0].match"}, {"prefixboundary", minimal + "cache: {rules: [{match: {prefix: /assets}}]}", "cache.rules[0].match.prefix"}, {"rulecapacity", minimal + "cache: {rules: [{match: {exact: /a}, max_bytes: 1GiB}]}", "cache.rules[0].max_bytes"},
+		{"ttlmode", minimal + "cache: {ttl_mode: origin}", "cache.ttl_mode"}, {"ttlmodeempty", minimal + "cache: {ttl_mode: ''}", "cache.ttl_mode"}, {"ttlmodecase", minimal + "cache: {ttl_mode: Fixed}", "cache.ttl_mode"}, {"rulettlmode", minimal + "cache: {rules: [{match: {prefix: /a/}, ttl_mode: ignore}]}", "cache.rules[0].ttl_mode"}, {"rulettlmodeempty", minimal + "cache: {rules: [{match: {prefix: /a/}, ttl_mode: ''}]}", "cache.rules[0].ttl_mode"},
+		{"requestdirectives", minimal + "cache: {request_directives: bypass}", "cache.request_directives"}, {"requestdirectivesempty", minimal + "cache: {request_directives: ''}", "cache.request_directives"}, {"requestdirectivesbool", minimal + "cache: {request_directives: false}", "cache.request_directives"}, {"rulerequestdirectives", minimal + "cache: {rules: [{match: {exact: /a}, request_directives: honour}]}", "cache.rules[0].request_directives"}, {"rulerequestdirectivesempty", minimal + "cache: {rules: [{match: {exact: /a}, request_directives: ''}]}", "cache.rules[0].request_directives"},
 		{"healthtimeout", minimal + "admin: {origin_health: {enabled: true, timeout: 30s}}", "admin.origin_health.timeout"}, {"healthstale", minimal + "admin: {origin_health: {enabled: true, max_staleness: 33s}}", "admin.origin_health.max_staleness"}, {"healthkey", minimal + "admin: {origin_health: {key: ../private}}", "admin.origin_health.key"},
 		{"badindex", minimal + "index: a/b.html", "index"}, {"badnotfound", minimal + "not_found: /404.html", "not_found"}, {"denial", minimal + "errors: {access_denied: ignore}", "errors.access_denied"}, {"compression", minimal + "compression: {mode: dynamic}", "compression.mode"}, {"offencodings", minimal + "compression: {encodings: []}", "compression.encodings"}, {"emptyencodings", minimal + "compression: {mode: precompressed, encodings: []}", "compression.encodings"}, {"duplicateencodings", minimal + "compression: {mode: precompressed, encodings: [br, br]}", "compression.encodings[1]"}, {"spashell", minimal + "spa: {}", "spa.fallback"}, {"spaincludes", minimal + "spa: {fallback: index.html, include_prefixes: []}", "spa.include_prefixes"}, {"spaexcludes", minimal + "spa: {fallback: index.html, exclude_prefixes: [/assets]}", "spa.exclude_prefixes[0]"},
 		{"redactionempty", minimal + "observability: {redact_query_params: ['']}", "observability.redact_query_params[0]"}, {"redactionduplicate", minimal + "observability: {redact_query_params: [Token, token]}", "observability.redact_query_params[1]"}, {"loglevel", minimal + "observability: {log_level: trace}", "observability.log_level"}, {"corswildcard", minimal + "cors: {allowed_origins: ['*']}", "cors.allowed_origins[0]"}, {"corspath", minimal + "cors: {allowed_origins: ['https://example.com/path']}", "cors.allowed_origins[0]"}, {"corsdup", minimal + "cors: {allowed_origins: ['https://Example.com', 'https://example.com:443']}", "cors.allowed_origins[1]"}, {"cachecontrol", minimal + "cache_control: {default: 'max-age='}", "cache_control.default"},
@@ -227,6 +229,49 @@ cache_control:
 	c.Cache.Rules[0].Enabled = &b
 	if c.Cache.PolicyFor("/assets/app.js").Enabled {
 		t.Fatal("rule re-enabled globally disabled cache")
+	}
+}
+
+func TestCacheModeValues(t *testing.T) {
+	for _, mode := range []string{"ceiling", "floor", "fallback", "fixed"} {
+		c := parseOK(t, minimal+"cache:\n  ttl_mode: "+mode+"\n  rules:\n    - match: {prefix: /a/}\n      ttl_mode: "+mode+"\n")
+		if c.Cache.TTLMode != mode || c.Cache.PolicyFor("/a/b").TTLMode != mode {
+			t.Errorf("ttl_mode %s loads as %q and %q", mode, c.Cache.TTLMode, c.Cache.PolicyFor("/a/b").TTLMode)
+		}
+	}
+	for _, directives := range []string{"honor", "revalidate_only", "ignore"} {
+		c := parseOK(t, minimal+"cache:\n  request_directives: "+directives+"\n  rules:\n    - match: {prefix: /a/}\n      request_directives: "+directives+"\n")
+		if c.Cache.RequestDirectives != directives || c.Cache.PolicyFor("/a/b").RequestDirectives != directives {
+			t.Errorf("request_directives %s loads as %q and %q", directives, c.Cache.RequestDirectives, c.Cache.PolicyFor("/a/b").RequestDirectives)
+		}
+	}
+}
+
+func TestRuleModesOverrideGlobalModes(t *testing.T) {
+	c := parseOK(t, minimal+`cache:
+  ttl_mode: fixed
+  request_directives: revalidate_only
+  rules:
+    - match: {prefix: /draft/}
+      ttl: 1m
+      request_directives: ignore
+    - match: {exact: /index.html}
+      ttl_mode: ceiling
+      request_directives: honor
+    - match: {prefix: /draft/}
+      ttl_mode: ceiling
+`)
+	for _, tc := range []struct{ path, mode, directives string }{
+		{"/other.js", "fixed", "revalidate_only"},
+		{"/draft/app.js", "fixed", "ignore"}, // the first matching rule wins, and an omitted mode keeps the global one
+		{"/index.html", "ceiling", "honor"},
+	} {
+		if p := c.Cache.PolicyFor(tc.path); p.TTLMode != tc.mode || p.RequestDirectives != tc.directives {
+			t.Errorf("%s: ttl_mode %q and request_directives %q, want %q and %q", tc.path, p.TTLMode, p.RequestDirectives, tc.mode, tc.directives)
+		}
+	}
+	if p := c.Cache.PolicyFor("/draft/app.js"); p.TTL != time.Minute {
+		t.Errorf("rule ttl %v, want 1m", p.TTL)
 	}
 }
 

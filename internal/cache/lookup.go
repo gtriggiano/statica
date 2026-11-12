@@ -183,6 +183,7 @@ func New(o Options) (*Cache, error) {
 	for i := range cfg.Rules {
 		r := &cfg.Rules[i]
 		r.Enabled, r.TTL, r.NegativeTTL, r.StaleIfError = clone(r.Enabled), clone(r.TTL), clone(r.NegativeTTL), clone(r.StaleIfError)
+		r.TTLMode, r.RequestDirectives = clone(r.TTLMode), clone(r.RequestDirectives)
 	}
 	now := o.Now
 	if now == nil {
@@ -299,9 +300,16 @@ const lookupAttempts = 3
 // request no-store, full flight limits or shutdown make it read the origin
 // directly within ctx instead, as does an object the flight streams to
 // another waiter. Typed storage errors are returned as such, together
-// with a non-nil Lookup the caller releases in every case.
+// with a non-nil Lookup the caller releases in every case. Only the
+// directives of req that the object's request_directives allow apply.
 func (c *Cache) Get(ctx context.Context, key string, req httpcache.Request) (*Lookup, error) {
+	return c.get(ctx, key, req, false)
+}
+
+// get is Get, revalidating even a fresh entry when revalidate is set.
+func (c *Cache) get(ctx context.Context, key string, req httpcache.Request, revalidate bool) (*Lookup, error) {
 	p := c.policy(key)
+	req = applied(p, req, revalidate)
 	switch {
 	case !p.Enabled:
 		return c.direct(ctx, key, storage.ReadOptions{}, ReasonDisabled)
@@ -482,9 +490,16 @@ func (c *Cache) direct(ctx context.Context, key string, opts storage.ReadOptions
 // anything else is replaced by a metadata entry, and failures follow the GET
 // rules for confirmed absence, denial and stale_if_error. An ambiguous
 // absence changes nothing. The returned Lookup has a Handle only when served
-// from memory.
+// from memory. Only the directives of req that the object's
+// request_directives allow apply.
 func (c *Cache) Head(ctx context.Context, key string, req httpcache.Request) (*Lookup, error) {
+	return c.head(ctx, key, req, false)
+}
+
+// head is Head, revalidating even a fresh entry when revalidate is set.
+func (c *Cache) head(ctx context.Context, key string, req httpcache.Request, revalidate bool) (*Lookup, error) {
 	p := c.policy(key)
+	req = applied(p, req, revalidate)
 	if !p.Enabled || req.NoStore {
 		reason := ReasonDisabled
 		if p.Enabled {

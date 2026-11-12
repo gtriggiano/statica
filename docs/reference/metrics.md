@@ -277,7 +277,7 @@ Entries evicted to make room, by entry kind: `body`, `metadata` or `negative`. R
 **Type:** counter\
 **Labels:** `kind`
 
-Entries that a lookup found past their freshness lifetime, counted once per stored version, by entry kind: `body`, `metadata` or `negative`. Entries with a zero lifetime, such as origin `no-cache` or a zero TTL, are revalidated on every use and never count. All three series exist from startup.
+Entries that a lookup found past their freshness lifetime, counted once per stored version, by entry kind: `body`, `metadata` or `negative`. Entries with a zero [lifetime](../architecture/memory-cache.md#lifetime), such as an origin `no-cache` with the default [`cache.ttl_mode`](./configuration.md#cache-ttl-mode), are revalidated on every use and never count. All three series exist from startup.
 
 ### `statica_cache_revalidations_total`
 

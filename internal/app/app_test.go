@@ -74,6 +74,7 @@ func TestStartupServesReportsAndStopsOnContext(t *testing.T) {
 		"shutdown_timeout": "30s", "max_connections": "1024", "max_concurrent_requests": "256",
 		"cache": "on", "cache_max_bytes": "134217728", "cache_max_entries": "10000",
 		"cache_max_object_bytes": "2097152", "cache_fill_timeout": "30s", "cache_ttl": "5m0s",
+		"cache_ttl_mode": "ceiling", "cache_request_directives": "honor",
 		"compression": "off", "spa": "off", "origin_health": "off", "access_log": "true", "log_level": "info",
 	})
 	if _, ok := startup["tls_min_version"]; ok {

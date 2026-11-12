@@ -13,9 +13,25 @@ import (
 // The Store never interprets freshness; these pure functions do, for callers
 // deciding what a snapshot may satisfy. Callers pass the object's effective
 // config.CachePolicy (config.Cache.PolicyFor of the resolved object path), the
-// request directives and the clock. Internal freshness decides reuse only: the
-// response layer projects downstream headers on its own, so capping the TTL
-// by an origin lifetime never changes the policy advertised to clients.
+// request directives that apply to it (applied) and the clock. Internal
+// freshness decides reuse only: the response layer projects downstream
+// headers on its own, so combining the TTL with an origin lifetime under any
+// ttl_mode never changes the policy advertised to clients.
+
+// applied returns the request directives that apply under p: all of req with
+// request_directives honor, all but no-store with revalidate_only, none with
+// ignore. revalidate, statica's own demand for a revalidation, adds no-cache
+// whatever p says.
+func applied(p config.CachePolicy, req httpcache.Request, revalidate bool) httpcache.Request {
+	switch p.RequestDirectives {
+	case config.RequestDirectivesRevalidateOnly:
+		req.NoStore = false
+	case config.RequestDirectivesIgnore:
+		req = httpcache.Request{}
+	}
+	req.NoCache = req.NoCache || revalidate
+	return req
+}
 
 // Admission is the finite outcome of the admission check: AdmissionEligible
 // or the reason a snapshot bypasses the cache.
@@ -79,10 +95,10 @@ const (
 )
 
 // Freshness evaluates one snapshot at one instant. Age is the RFC 9111
-// current age of a positive snapshot, or the time since a negative one was
-// received. Lifetime is the effective freshness lifetime. Remaining is
-// Lifetime minus Age while fresh and zero otherwise: a hit reports what is
-// left, never a renewed lifetime.
+// current age of a positive snapshot, or the time since it was received for a
+// negative snapshot and under ttl_mode fixed. Lifetime is the effective
+// freshness lifetime. Remaining is Lifetime minus Age while fresh and zero
+// otherwise: a hit reports what is left, never a renewed lifetime.
 type Freshness struct {
 	State                    State
 	Age, Lifetime, Remaining time.Duration
@@ -97,51 +113,79 @@ func (f Freshness) Expired() bool {
 	return f.State == StateStale && f.Lifetime > 0 && f.Age >= f.Lifetime
 }
 
-// Evaluate decides whether stored snapshot s may satisfy req at now under p.
-// It is fresh iff its lifetime exceeds its age and req does not force
-// revalidation: request no-cache or max-age=0 always does, and max-age=N does
-// once the age in whole seconds, as an Age header would state it, exceeds N. Body and metadata-only snapshots live for the TTL,
-// capped by an origin lifetime but never extended by one; origin no-cache or a
-// zero TTL makes the lifetime zero. A negative snapshot lives for
-// negative_ttl from its response time. A snapshot that is not admissible,
-// which a correct caller never stores, is stale with zero lifetime.
+// Evaluate decides whether stored snapshot s may satisfy req at now under p;
+// req holds the directives that apply under p (applied). It is fresh iff its
+// lifetime exceeds its age and req does not force revalidation: request
+// no-cache or max-age=0 always does, and max-age=N does once the age in whole
+// seconds, as an Age header would state it, exceeds N. Body and metadata-only
+// snapshots live for the lifetime that ttl_mode combines from the TTL and the
+// origin's (see lifetime), aged as RFC 9111 defines, except under ttl_mode
+// fixed, which ignores the origin's freshness and counts the TTL from the
+// response time. A negative snapshot lives for negative_ttl from its response
+// time. A snapshot that is not admissible, which a correct caller never
+// stores, is stale with zero lifetime.
 func Evaluate(p config.CachePolicy, req httpcache.Request, s Snapshot, now time.Time) Freshness {
-	f, _, _ := evaluate(p, req, s, now)
+	f, _, _, _ := evaluate(p, req, s, now)
 	return f
 }
 
-// evaluate is Evaluate that also returns the admission outcome and the parsed
-// origin directives.
-func evaluate(p config.CachePolicy, req httpcache.Request, s Snapshot, now time.Time) (Freshness, Admission, httpcache.Directives) {
+// evaluate is Evaluate that also returns the admission outcome, the parsed
+// origin directives and whether req refuses the snapshot without
+// revalidation.
+func evaluate(p config.CachePolicy, req httpcache.Request, s Snapshot, now time.Time) (Freshness, Admission, httpcache.Directives, bool) {
 	a, d := classify(p, req, s)
 	switch a {
 	case AdmissionEligible:
 	case AdmissionDisabled, AdmissionRequestNoStore:
-		return Freshness{State: StateBypass}, a, d
+		return Freshness{State: StateBypass}, a, d, false
 	default:
-		return Freshness{State: StateStale}, a, d
+		return Freshness{State: StateStale}, a, d, false
 	}
 	f := Freshness{State: StateStale}
+	received := max(now.Sub(s.ResponseTime), 0)
+	// advertised is the age a response served from this snapshot states,
+	// which a request max-age is compared with.
+	advertised := received
 	if s.Kind == KindNegative {
-		f.Age, f.Lifetime = max(now.Sub(s.ResponseTime), 0), p.NegativeTTL
+		f.Age, f.Lifetime = received, p.NegativeTTL
 	} else {
-		f.Age, f.Lifetime = httpcache.CurrentAge(s.Metadata, s.RequestTime, s.ResponseTime, now), lifetime(p, d, s)
+		advertised = httpcache.CurrentAge(s.Metadata, s.RequestTime, s.ResponseTime, now)
+		f.Age, f.Lifetime = advertised, lifetime(p, d, s)
+		if p.TTLMode == config.TTLModeFixed {
+			f.Age = received
+		}
 	}
-	if f.Lifetime > f.Age && !forced(req, f.Age) {
+	refused := forced(req, advertised)
+	if f.Lifetime > f.Age && !refused {
 		f.State, f.Remaining = StateFresh, f.Lifetime-f.Age
 	}
-	return f, a, d
+	return f, a, d, refused
 }
 
-// lifetime is a positive snapshot's effective freshness lifetime.
+// lifetime is a positive snapshot's effective freshness lifetime. The origin's
+// lifetime is s-maxage, max-age or Expires (httpcache.Lifetime), or zero with
+// no-cache. ttl_mode combines it with the TTL: ceiling (the default, also for
+// an empty mode) takes the shorter of the two, floor the longer, fallback the
+// origin's. The TTL alone applies under fixed, and whenever the origin assigns
+// no lifetime.
 func lifetime(p config.CachePolicy, d httpcache.Directives, s Snapshot) time.Duration {
-	if d.NoCache || p.TTL <= 0 {
-		return 0
+	ttl := max(p.TTL, 0)
+	if p.TTLMode == config.TTLModeFixed {
+		return ttl
 	}
-	if origin, ok := httpcache.Lifetime(d, s.Metadata, s.ResponseTime); ok {
-		return min(p.TTL, origin)
+	origin, ok := httpcache.Lifetime(d, s.Metadata, s.ResponseTime)
+	if d.NoCache {
+		origin, ok = 0, true
 	}
-	return p.TTL
+	switch {
+	case !ok:
+		return ttl
+	case p.TTLMode == config.TTLModeFloor:
+		return max(ttl, origin)
+	case p.TTLMode == config.TTLModeFallback:
+		return origin
+	}
+	return min(ttl, origin)
 }
 
 // forced reports whether req refuses a stored response of the given age
@@ -151,21 +195,23 @@ func forced(req httpcache.Request, age time.Duration) bool {
 }
 
 // StaleIfError reports whether s, whose revalidation or refetch failed with
-// cause at now, may still be served under p. Only a positive snapshot
-// qualifies, and only when p.StaleIfError is positive, s is stale by its own
-// lifetime and its staleness (age minus lifetime) is at most p.StaleIfError.
-// Origin must-revalidate, proxy-revalidate, no-cache and s-maxage (which
-// implies proxy-revalidate, RFC 9111 §5.2.2.10) forbid it, as does a request
-// that forces revalidation or carries no-store. Origin stale-if-error
-// directives (RFC 5861) are ignored: statica's configuration alone governs
-// stale service. Serving stale never renews the snapshot's lifetime.
+// cause at now, may still be served under p; req holds the directives that
+// apply under p (applied). Only a positive snapshot qualifies, and only when
+// p.StaleIfError is positive, s is stale by its own lifetime and its
+// staleness (age minus lifetime) is at most p.StaleIfError. Origin
+// must-revalidate, proxy-revalidate, no-cache and s-maxage (which implies
+// proxy-revalidate, RFC 9111 §5.2.2.10) forbid it, except under ttl_mode
+// fixed, which ignores the origin's freshness. A request that forces revalidation or carries no-store
+// forbids it too. Origin stale-if-error directives (RFC 5861) are ignored:
+// statica's configuration alone governs stale service. Serving stale never
+// renews the snapshot's lifetime.
 func StaleIfError(p config.CachePolicy, req httpcache.Request, s Snapshot, now time.Time, cause error) bool {
 	if p.StaleIfError <= 0 || s.Kind != KindBody && s.Kind != KindMetadata || !staleCause(cause) {
 		return false
 	}
-	f, a, d := evaluate(p, req, s, now)
-	if a != AdmissionEligible || f.Age < f.Lifetime || forced(req, f.Age) ||
-		d.MustRevalidate || d.ProxyRevalidate || d.NoCache || d.SMaxAge.Present {
+	f, a, d, refused := evaluate(p, req, s, now)
+	revalidate := d.MustRevalidate || d.ProxyRevalidate || d.NoCache || d.SMaxAge.Present
+	if a != AdmissionEligible || f.Age < f.Lifetime || refused || revalidate && p.TTLMode != config.TTLModeFixed {
 		return false
 	}
 	return f.Age-f.Lifetime <= p.StaleIfError
