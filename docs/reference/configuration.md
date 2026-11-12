@@ -1,12 +1,27 @@
 ---
+description: "Every field of the statica configuration file, with its type, default and allowed values."
 outline: [2, 2]
 ---
 
 # Configuration reference
 
-Each **statica** command that needs a configuration reads one YAML file when it starts. This page lists every field with its type, its default and the rules it must satisfy. The [CLI reference](./cli.md) describes the commands that load, check and print the file, [Configuration examples](./examples.md) shows complete files, and [Configuration basics](../guide/configuration.md) introduces the format.
+Each **statica** command that needs a configuration reads one YAML file when it starts. This page lists every field with its type, its default and the values it allows. The [CLI reference](./cli.md) describes the commands that load, check and print the file, [Configuration examples](./examples.md) shows complete files, and [Configuration basics](../guide/configuration.md) introduces the format.
 
-Each field has its own heading, named after its full path. `[]` stands for an item of a list and `<name>` for an entry of a map: `cache.rules[].match.prefix`, `headers.set.<name>`.
+## How to read this page
+
+Each field has its own heading, named after its full path. `[]` stands for an item of a list and `<name>` for an entry of a map: `cache.rules[].match.prefix`, `headers.set.<name>`. A section whose fields have their own entries has a table of them.
+
+A field's entry starts with its type, described in [Format](#format), its default and, when validation accepts less than the type, the allowed values. The default says what statica does when you omit the field:
+
+| Default | Meaning |
+| --- | --- |
+| A value, such as `30s` | The field behaves as if you wrote that value. |
+| required | The configuration is invalid without the field. |
+| unset | The field has no value, and the entry says what statica does then. |
+| inherits a field | A field of a rule: when omitted, the named global field applies to the objects of the rule. |
+| derived from a field | The field takes the value of the named field. |
+
+A field inside an optional block, such as `server.tls`, is required or gets its default only when the block is present.
 
 ## Loading
 
@@ -89,9 +104,10 @@ statica: cache.ttl (line 5, column 8): expected a string with explicit units
 ## `hosts`
 
 **Type:** list of strings\
-**Default:** none — every valid hostname is accepted.
+**Default:** unset — every valid hostname is accepted.\
+**Allowed:** nonempty; unique DNS names or IP addresses
 
-Allowlist of request hostnames. When present, the list is nonempty and each entry is an exact DNS name or IP address, without scheme, port, path, brackets or wildcard (`www.example.com`, `192.0.2.10`, `2001:db8::10`). A name made only of digits and dots must be a valid IPv4 address: `192.0.2.010` is rejected. Entries must be unique after [normalization](#normalization). A request whose `Host`, without its port, is not listed gets 421 Misdirected Request ([host admission](../architecture/request-flow.md#host-admission)). Every listed name serves the same site.
+Allowlist of request hostnames. Each entry is an exact DNS name or IP address, without scheme, port, path, brackets or wildcard (`www.example.com`, `192.0.2.10`, `2001:db8::10`). A DNS name has at most 253 bytes, in labels of letters, digits and `-` of at most 63 bytes that neither start nor end with `-`. A name made only of digits and dots must be a valid IPv4 address: `192.0.2.010` is rejected. Entries must be unique after [normalization](#normalization). A request whose `Host`, without its port, is not listed gets 421 Misdirected Request ([host admission](../architecture/request-flow.md#host-admission)). Every listed name serves the same site.
 
 ::: tip
 Accepted hostnames become the [`host` label](./metrics.md#host) of the request metrics. With `hosts`, the label values are bounded by the list; without it, every hostname clients send adds new series.
@@ -104,17 +120,39 @@ Accepted hostnames become the [`host` label](./metrics.md#host) of the request m
 
 The public listener. Each field has its own default. [Timeouts and long downloads](../architecture/timeouts.md) explains how the timeouts below combine.
 
+| Field | Type | Default | Allowed |
+| --- | --- | --- | --- |
+| [`server.listen`](#server-listen) | string | `127.0.0.1:8080` | a `host:port` address |
+| [`server.tls`](#server-tls) | mapping | unset |  |
+| [`server.tls.cert_file`](#server-tls-cert-file) | string | required | nonempty; a file path |
+| [`server.tls.key_file`](#server-tls-key-file) | string | required | nonempty; a file path |
+| [`server.tls.min_version`](#server-tls-min-version) | string | `"1.2"` | `"1.2"` or `"1.3"` |
+| [`server.trusted_proxies`](#server-trusted-proxies) | list of strings | `[]` | CIDR ranges with a prefix length of at least 1 |
+| [`server.client_ip_header`](#server-client-ip-header) | string | `X-Forwarded-For` | `X-Forwarded-For` or `X-Real-IP` |
+| [`server.request_id_header`](#server-request-id-header) | string | `X-Request-ID` | a header name that is not reserved |
+| [`server.max_forwarded_hops`](#server-max-forwarded-hops) | integer | `16` | `1` to `256` |
+| [`server.read_header_timeout`](#server-read-header-timeout) | duration | `5s` | positive |
+| [`server.response_header_timeout`](#server-response-header-timeout) | duration | `30s` | positive |
+| [`server.write_idle_timeout`](#server-write-idle-timeout) | duration | `60s` | positive |
+| [`server.idle_timeout`](#server-idle-timeout) | duration | `60s` | positive |
+| [`server.request_timeout`](#server-request-timeout) | duration | `0s` | zero or positive |
+| [`server.shutdown_timeout`](#server-shutdown-timeout) | duration | `30s` | positive |
+| [`server.max_header_bytes`](#server-max-header-bytes) | integer | `32768` | `1` to `1073741824` |
+| [`server.max_connections`](#server-max-connections) | integer | `1024` | positive |
+| [`server.max_concurrent_requests`](#server-max-concurrent-requests) | integer | `256` | positive |
+
 ### `server.listen`
 
 **Type:** string\
-**Default:** `127.0.0.1:8080`
+**Default:** `127.0.0.1:8080`\
+**Allowed:** a `host:port` address
 
 Address of the public listener, as `host:port`. The host is a hostname, an IP address (IPv6 in brackets: `[::1]:8080`) or empty for every interface (`:8080`). The port follows the [port syntax](#ports). Must not share an address and port with [`admin.listen`](#admin-listen). The listener serves HTTP/1.1, or HTTPS with HTTP/2 and HTTP/1.1 when `server.tls` is present.
 
 ### `server.tls`
 
 **Type:** mapping\
-**Default:** none — the public listener serves plain HTTP.
+**Default:** unset — the public listener serves plain HTTP.
 
 Serves HTTPS with one certificate chain, offering HTTP/2 and HTTP/1.1 through ALPN. `config validate` and `serve` load the certificate and key and fail if they do not match; `config print` does not read them. The files are read once, at startup. See [TLS on the public listener](../architecture/security.md#tls-on-the-public-listener), and [Serve HTTPS directly](../guide/tls.md) for a walkthrough.
 
@@ -130,28 +168,32 @@ server:
 ### `server.tls.cert_file`
 
 **Type:** string\
-**Default:** none — required when `server.tls` is present.
+**Default:** required\
+**Allowed:** nonempty; a file path
 
 Path of the PEM certificate chain, leaf certificate first. A relative path is resolved against the directory of the configuration file.
 
 ### `server.tls.key_file`
 
 **Type:** string\
-**Default:** none — required when `server.tls` is present.
+**Default:** required\
+**Allowed:** nonempty; a file path
 
 Path of the PEM private key that matches the leaf certificate. A relative path is resolved like `cert_file`.
 
 ### `server.tls.min_version`
 
 **Type:** string\
-**Default:** `"1.2"` when `server.tls` is present.
+**Default:** `"1.2"`\
+**Allowed:** `"1.2"` or `"1.3"`
 
-Minimum TLS version: `"1.2"` or `"1.3"`. Quote the value: an unquoted `1.3` is a YAML number and is rejected.
+Minimum TLS version. Quote the value: an unquoted `1.3` is a YAML number and is rejected.
 
 ### `server.trusted_proxies`
 
 **Type:** list of strings\
-**Default:** `[]`
+**Default:** `[]`\
+**Allowed:** CIDR ranges with a prefix length of at least 1
 
 CIDR ranges of the proxies allowed to supply the client IP (`server.client_ip_header`) and the request ID (`server.request_id_header`). These headers are used only when the immediate peer's address is in this list, and the `X-Forwarded-For` walk also skips the addresses in it. With an empty list, both headers are ignored and the peer address is used ([client IP attribution](../architecture/security.md#trusted-proxies-and-client-ip-attribution)). To choose the ranges, see [Trust only your proxies](../guide/behind-a-proxy.md#trust-only-your-proxies).
 
@@ -162,9 +204,10 @@ CIDR ranges of the proxies allowed to supply the client IP (`server.client_ip_he
 ### `server.client_ip_header`
 
 **Type:** string\
-**Default:** `X-Forwarded-For`
+**Default:** `X-Forwarded-For`\
+**Allowed:** `X-Forwarded-For` or `X-Real-IP`
 
-Header from which statica takes the client IP when the peer is a trusted proxy: `X-Forwarded-For` or `X-Real-IP`, in any letter case.
+Header from which statica takes the client IP when the peer is a trusted proxy. The name is accepted in any letter case.
 
 - `X-Forwarded-For`: statica reads every line of the header as one list and walks it from the right. The client is the first address that is not in `server.trusted_proxies`, or the leftmost address when all of them are.
 - `X-Real-IP`: the header must hold exactly one IP address.
@@ -174,11 +217,12 @@ A missing, malformed or too long header is not an error: statica uses the peer a
 ### `server.request_id_header`
 
 **Type:** string\
-**Default:** `X-Request-ID`
+**Default:** `X-Request-ID`\
+**Allowed:** a header name that is not reserved
 
 Request header from which statica reuses a request ID. It reuses the ID only when the peer is a trusted proxy and the header has exactly one value of 1–128 characters from `A–Z`, `a–z`, `0–9`, `.`, `_`, `:` and `-`. Otherwise it generates a 32-character hexadecimal ID. Every response statica writes carries the ID in `X-Request-ID`, whatever this setting ([request IDs](../architecture/security.md#request-ids); [Pass request IDs](../guide/behind-a-proxy.md#pass-request-ids)). Responses that the Go HTTP server writes before statica handles the request (431 Request Header Fields Too Large for oversized headers, 400 Bad Request for some malformed requests) have no `X-Request-ID`.
 
-The name must be a valid header name and not one of these:
+The name is case-insensitive, and statica keeps it in canonical header case: `config print` shows the default as `X-Request-Id`. It must be a valid header name and not one of these:
 
 | Group | Names |
 | --- | --- |
@@ -190,72 +234,82 @@ The name must be a valid header name and not one of these:
 ### `server.max_forwarded_hops`
 
 **Type:** integer\
-**Default:** `16`
+**Default:** `16`\
+**Allowed:** `1` to `256`
 
-Maximum number of addresses statica reads from `X-Forwarded-For`, 1–256. A longer list, or one longer than 64 bytes per allowed address, is ignored and statica uses the peer address ([Choose the client IP header](../guide/behind-a-proxy.md#choose-the-client-ip-header)).
+Maximum number of addresses statica reads from `X-Forwarded-For`. A longer list, or one longer than 64 bytes per allowed address, is ignored and statica uses the peer address ([Choose the client IP header](../guide/behind-a-proxy.md#choose-the-client-ip-header)).
 
 ### `server.read_header_timeout`
 
 **Type:** duration\
-**Default:** `5s`
+**Default:** `5s`\
+**Allowed:** positive
 
-Positive. Time allowed to read the headers of a request.
+Time allowed to read the headers of a request.
 
 ### `server.response_header_timeout`
 
 **Type:** duration\
-**Default:** `30s`
+**Default:** `30s`\
+**Allowed:** positive
 
-Positive. Budget from the admission of a request to its response headers. It covers origin attempts and retries and waiting for a shared fill. When it expires first, the response is 504 Gateway Timeout. It also bounds the setup of the origin client when `serve` starts and the whole `config check-origin` probe.
+Budget from the admission of a request to its response headers. It covers origin attempts and retries and waiting for a shared fill. When it expires first, the response is 504 Gateway Timeout. It also bounds the setup of the origin client when `serve` starts and the whole `config check-origin` probe.
 
 ### `server.write_idle_timeout`
 
 **Type:** duration\
-**Default:** `60s`
+**Default:** `60s`\
+**Allowed:** positive
 
-Positive. Each write of a response to the client, of up to 32 KiB, must finish within this time. A slow download that keeps progressing is not cut. When a write takes longer, statica aborts the response: it closes an HTTP/1.1 connection or resets the HTTP/2 stream.
+Each write of a response to the client, of up to 32 KiB, must finish within this time. A slow download that keeps progressing is not cut. When a write takes longer, statica aborts the response: it closes an HTTP/1.1 connection or resets the HTTP/2 stream.
 
 ### `server.idle_timeout`
 
 **Type:** duration\
-**Default:** `60s`
+**Default:** `60s`\
+**Allowed:** positive
 
-Positive. How long a keep-alive connection may stay idle between requests. Idle connections count toward `server.max_connections`.
+How long a keep-alive connection may stay idle between requests. Idle connections count toward `server.max_connections`.
 
 ### `server.request_timeout`
 
 **Type:** duration\
-**Default:** `0s`
+**Default:** `0s`\
+**Allowed:** zero or positive
 
-Zero or positive. Total time limit of a request, from its admission to the end of the response body. `0s` sets no total limit; the other timeouts still apply. When it expires before the response headers, the response is 504 Gateway Timeout; after them, statica aborts the response (it closes an HTTP/1.1 connection or resets the HTTP/2 stream).
+Total time limit of a request, from its admission to the end of the response body. `0s` sets no total limit; the other timeouts still apply. When it expires before the response headers, the response is 504 Gateway Timeout; after them, statica aborts the response (it closes an HTTP/1.1 connection or resets the HTTP/2 stream).
 
 ### `server.shutdown_timeout`
 
 **Type:** duration\
-**Default:** `30s`
+**Default:** `30s`\
+**Allowed:** positive
 
-Positive. Total budget of a graceful shutdown, from the first signal to the exit. Requests still active when the drain phase ends, at the budget minus `min(budget/4, 1s)`, are canceled, however long they are allowed to run ([one budget](../architecture/lifecycle.md#one-budget)). To size it with your supervisor's grace period, see [Shut down without cutting requests](../guide/deployment.md#shut-down-without-cutting-requests).
+Total budget of a graceful shutdown, from the first signal to the exit. Requests still active when the drain phase ends, at the budget minus `min(budget/4, 1s)`, are canceled, however long they are allowed to run ([one budget](../architecture/lifecycle.md#one-budget)). To size it with your supervisor's grace period, see [Shut down without cutting requests](../guide/deployment.md#shut-down-without-cutting-requests).
 
 ### `server.max_header_bytes`
 
 **Type:** integer\
-**Default:** `32768`
+**Default:** `32768`\
+**Allowed:** `1` to `1073741824`
 
-Maximum size of the request line and headers, in bytes, 1–1073741824. HTTP/1.1 requests may exceed it by up to 4 KiB. Larger requests get 431 Request Header Fields Too Large from the Go HTTP server before statica handles them, without `X-Request-ID`, `headers.set` or `X-Content-Type-Options`.
+Maximum size of the request line and headers, in bytes. HTTP/1.1 requests may exceed it by up to 4 KiB. Larger requests get 431 Request Header Fields Too Large from the Go HTTP server before statica handles them, without `X-Request-ID`, `headers.set` or `X-Content-Type-Options`.
 
 ### `server.max_connections`
 
 **Type:** integer\
-**Default:** `1024`
+**Default:** `1024`\
+**Allowed:** positive
 
-Positive. Maximum open connections on the public listener, including TLS handshakes and idle keep-alive connections. At the limit, statica stops accepting connections: new ones wait in the operating system's backlog; statica does not refuse them.
+Maximum open connections on the public listener, including TLS handshakes and idle keep-alive connections. At the limit, statica stops accepting connections: new ones wait in the operating system's backlog; statica does not refuse them.
 
 ### `server.max_concurrent_requests`
 
 **Type:** integer\
-**Default:** `256`
+**Default:** `256`\
+**Allowed:** positive
 
-Positive. Maximum requests in progress at once, across every connection (an HTTP/2 connection carries several). A request over the limit gets 503 Service Unavailable at once, before any other check. A request holds its place until its response ends, downloads included ([request capacity](../architecture/request-flow.md#request-capacity)).
+Maximum requests in progress at once, across every connection (an HTTP/2 connection carries several). A request over the limit gets 503 Service Unavailable at once, before any other check. A request holds its place until its response ends, downloads included ([request capacity](../architecture/request-flow.md#request-capacity)).
 
 ## `admin`
 
@@ -264,10 +318,23 @@ Positive. Maximum requests in progress at once, across every connection (an HTTP
 
 The admin listener, which serves `/livez`, `/readyz` and `/metrics` ([Admin endpoints](./admin-endpoints.md)).
 
+| Field | Type | Default | Allowed |
+| --- | --- | --- | --- |
+| [`admin.listen`](#admin-listen) | string | `127.0.0.1:9090` | a `host:port` address, distinct from `server.listen` |
+| [`admin.origin_health`](#admin-origin-health) | mapping | unset |  |
+| [`admin.origin_health.enabled`](#admin-origin-health-enabled) | boolean | `false` |  |
+| [`admin.origin_health.key`](#admin-origin-health-key) | string | derived from `index` | a relative object key |
+| [`admin.origin_health.interval`](#admin-origin-health-interval) | duration | `30s` | positive |
+| [`admin.origin_health.timeout`](#admin-origin-health-timeout) | duration | `3s` | positive; less than `interval` |
+| [`admin.origin_health.failure_threshold`](#admin-origin-health-failure-threshold) | integer | `3` | positive |
+| [`admin.origin_health.success_threshold`](#admin-origin-health-success-threshold) | integer | `1` | positive |
+| [`admin.origin_health.max_staleness`](#admin-origin-health-max-staleness) | duration | `90s` | positive; greater than `interval` plus `timeout` |
+
 ### `admin.listen`
 
 **Type:** string\
-**Default:** `127.0.0.1:9090`
+**Default:** `127.0.0.1:9090`\
+**Allowed:** a `host:port` address, distinct from `server.listen`
 
 Address of the admin listener, with the same syntax as `server.listen`. With the same port as `server.listen`, it is rejected when the two hosts are equal after [normalization](#normalization), when either host is empty, `0.0.0.0` or `::` (every interface), or when both are loopback addresses (`localhost`, `127.0.0.0/8`, `::1`). Different ports are always accepted. Other addresses that the system cannot bind together, such as two names that resolve to the same address, fail when `serve` starts. The admin listener serves plain HTTP/1.1.
 
@@ -278,12 +345,12 @@ The admin endpoints have no authentication. Bind `admin.listen` to a loopback or
 ### `admin.origin_health`
 
 **Type:** mapping\
-**Default:** none — no origin health check; readiness does not depend on the origin.
+**Default:** unset — no origin health check; readiness does not depend on the origin.
 
 A background check of one object's metadata: one `HEAD` request, one attempt, never from the memory cache. With the check enabled, `/readyz` reports not ready until the first success, then follows the thresholds below ([origin health](../architecture/lifecycle.md#origin-health)). To decide whether to enable it and choose its key and thresholds, see [Health checks and readiness](../guide/health-checks.md#decide-whether-readiness-follows-the-origin).
 
 ::: warning
-The check runs only with `enabled: true`. Without it, the block is validated but has no effect, apart from the key that `config check-origin` uses.
+The check runs only with [`enabled: true`](#admin-origin-health-enabled). Without it, the block is validated but has no effect, apart from the key that `config check-origin` uses.
 :::
 
 ```yaml [config.yaml]
@@ -300,75 +367,101 @@ admin:
 **Type:** boolean\
 **Default:** `false`
 
-Turns the check on.
+Turns the check on. With `false`, statica validates the rest of the block and runs no check.
 
 ### `admin.origin_health.key`
 
 **Type:** string\
-**Default:** none — the value of `index`.
+**Default:** derived from `index`\
+**Allowed:** a relative object key
 
-Object key to check, relative to `s3.prefix`, with the same rules as `not_found`. `config check-origin` also uses this key when the block is present.
+Object key to check, relative to `s3.prefix`, with the same rules as `not_found`. When omitted, the check reads the `index` object at the root of the prefix. `config check-origin` also uses this key when the block is present.
 
 ### `admin.origin_health.interval`
 
 **Type:** duration\
-**Default:** `30s`
+**Default:** `30s`\
+**Allowed:** positive
 
-Positive. Time from the end of one check to the start of the next, shortened by a random jitter of up to 10%. The first check starts once both listeners are bound.
+Time from the end of one check to the start of the next, shortened by a random jitter of up to 10%. The first check starts once both listeners are bound.
 
 ### `admin.origin_health.timeout`
 
 **Type:** duration\
-**Default:** `3s`
+**Default:** `3s`\
+**Allowed:** positive; less than `interval`
 
-Positive and less than `interval`. Deadline of one check. `s3.response_header_timeout` applies to it as well.
+Deadline of one check. `s3.response_header_timeout` applies to it as well.
 
 ### `admin.origin_health.failure_threshold`
 
 **Type:** integer\
-**Default:** `3`
+**Default:** `3`\
+**Allowed:** positive
 
-Positive. Consecutive failed checks that turn a healthy origin unhealthy. Every error is a failure, a missing object included.
+Consecutive failed checks that turn a healthy origin unhealthy. Every error is a failure, a missing object included.
 
 ### `admin.origin_health.success_threshold`
 
 **Type:** integer\
-**Default:** `1`
+**Default:** `1`\
+**Allowed:** positive
 
-Positive. Consecutive successful checks that turn an unhealthy origin healthy again. The first success after startup makes the origin healthy whatever this value.
+Consecutive successful checks that turn an unhealthy origin healthy again. The first success after startup makes the origin healthy whatever this value.
 
 ### `admin.origin_health.max_staleness`
 
 **Type:** duration\
-**Default:** `90s`
+**Default:** `90s`\
+**Allowed:** positive; greater than `interval` plus `timeout`
 
-Must be greater than `interval` plus `timeout`. When the last success is older, `/readyz` reports `origin_stale`.
+When the last success is older than this, `/readyz` reports `origin_stale`.
 
 ## `s3`
 
 **Type:** mapping\
-**Default:** none — required: `s3.bucket` has no default.
+**Default:** required — `s3.bucket` has no default.
 
 The origin: one bucket and, optionally, a publication prefix in it. Credentials come from the standard AWS credential chain; the configuration never holds them. Origin and credential requests honor the `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` environment variables ([origin connections](../architecture/security.md#origin-connections)). [Connect to S3 and S3-compatible providers](../guide/s3-providers.md) covers AWS S3, compatible services and credentials.
+
+| Field | Type | Default | Allowed |
+| --- | --- | --- | --- |
+| [`s3.bucket`](#s3-bucket) | string | required | a bucket name; not an ARN, a path or a template |
+| [`s3.region`](#s3-region) | string | unset | nonempty; ASCII letters, digits, `-` and `_` |
+| [`s3.prefix`](#s3-prefix) | string | `""` | a key prefix of at most 1024 bytes |
+| [`s3.endpoint`](#s3-endpoint) | string | unset | an `http` or `https` URL with a host and an optional port |
+| [`s3.path_style`](#s3-path-style) | boolean | `false` |  |
+| [`s3.allow_http`](#s3-allow-http) | boolean | `false` |  |
+| [`s3.insecure_skip_verify`](#s3-insecure-skip-verify) | boolean | `false` |  |
+| [`s3.response_header_timeout`](#s3-response-header-timeout) | duration | `10s` | positive |
+| [`s3.read_idle_timeout`](#s3-read-idle-timeout) | duration | `30s` | positive |
+| [`s3.max_attempts`](#s3-max-attempts) | integer | `2` | `1` to `3` |
+| [`s3.features`](#s3-features) | mapping | `{}` |  |
+| [`s3.features.conditional_reads`](#s3-features-conditional-reads) | boolean | `true` |  |
+| [`s3.features.range_reads`](#s3-features-range-reads) | boolean | `true` |  |
+| [`s3.features.checksums`](#s3-features-checksums) | boolean | `false` |  |
 
 ### `s3.bucket`
 
 **Type:** string\
-**Default:** none — required.
+**Default:** required\
+**Allowed:** a bucket name; not an ARN, a path or a template
 
 Bucket name, up to 255 characters: a letter or digit, then letters, digits, `.`, `_` or `-`. ARNs, paths and templates are rejected. Names ending in `--x-s3`, `.mrap`, `--ol-s3`, `-s3alias` or `--table-s3` (directory buckets, Multi-Region and Object Lambda access points, access point aliases and table buckets) are rejected.
 
 ### `s3.region`
 
 **Type:** string\
-**Default:** none — discovered from the AWS configuration when `serve` or `config check-origin` starts.
+**Default:** unset — discovered from the AWS configuration when `serve` or `config check-origin` starts.\
+**Allowed:** nonempty; ASCII letters, digits, `-` and `_`
 
-Signing region. When present, it is nonempty and contains only ASCII letters, digits, `-` and `_`. Without it, statica takes the region from the AWS configuration (environment variables such as `AWS_REGION`, then the shared configuration files), and `config validate` prints `S3 region deferred to AWS discovery at startup`. `serve` and `config check-origin` fail if no region is found or if the discovered region contains other characters.
+Signing region. Without it, statica takes the region from the AWS configuration (environment variables such as `AWS_REGION`, then the shared configuration files), and `config validate` prints `S3 region deferred to AWS discovery at startup`. `serve` and `config check-origin` fail if no region is found or if the discovered region contains other characters.
 
 ### `s3.prefix`
 
 **Type:** string\
-**Default:** `""`
+**Default:** `""`\
+**Allowed:** a key prefix of at most 1024 bytes
 
 Publication prefix: the part of the bucket that holds the site. Empty selects the bucket root. Leading and trailing slashes are optional:
 
@@ -383,7 +476,8 @@ Only leading and trailing slashes are removed. Empty interior segments (`docs//c
 ### `s3.endpoint`
 
 **Type:** string\
-**Default:** none — the AWS S3 endpoint of the region.
+**Default:** unset — the AWS S3 endpoint of the region.\
+**Allowed:** an `http` or `https` URL with a host and an optional port
 
 URL of an S3-compatible service: `http` or `https`, a host and an optional [port](#ports), and nothing else (no credentials, query, fragment, or path other than `/`). An `http` endpoint requires `s3.allow_http: true`. Endpoint overrides from the AWS environment and shared configuration are ignored: only this field selects the endpoint.
 
@@ -415,23 +509,26 @@ Without verification, anyone who can intercept the traffic between statica and t
 ### `s3.response_header_timeout`
 
 **Type:** duration\
-**Default:** `10s`
+**Default:** `10s`\
+**Allowed:** positive
 
-Positive. Time to wait for the response headers of one origin request; each retry waits again. It also applies to requests to AWS credential providers. The request's `server.response_header_timeout` still bounds the total. It also bounds the setup of each connection, for the origin and for the credential providers alike: opening the TCP connection (otherwise up to 30 s) and the TLS handshake (otherwise up to 10 s) each take at most this value, so an origin that does not answer connection attempts fails each attempt as a timeout within the same budget.
+Time to wait for the response headers of one origin request; each retry waits again. It also applies to requests to AWS credential providers. The request's `server.response_header_timeout` still bounds the total. It also bounds the setup of each connection, for the origin and for the credential providers alike: opening the TCP connection (otherwise up to 30 s) and the TLS handshake (otherwise up to 10 s) each take at most this value, so an origin that does not answer connection attempts fails each attempt as a timeout within the same budget.
 
 ### `s3.read_idle_timeout`
 
 **Type:** duration\
-**Default:** `30s`
+**Default:** `30s`\
+**Allowed:** positive
 
-Positive. Longest wait for data while statica reads an object body from the origin. Time during which statica is not reading, for example while the client is slow to accept data, does not count. When it expires, the read fails as a timeout.
+Longest wait for data while statica reads an object body from the origin. Time during which statica is not reading, for example while the client is slow to accept data, does not count. When it expires, the read fails as a timeout.
 
 ### `s3.max_attempts`
 
 **Type:** integer\
-**Default:** `2`
+**Default:** `2`\
+**Allowed:** `1` to `3`
 
-Attempts per origin request, the first included, 1–3. Retries follow the AWS SDK's standard rules (server errors, throttling, connection errors), with a backoff of at most 500 ms. Reading a body is never retried once it has started. The origin health check always makes one attempt.
+Attempts per origin request, the first included. Retries follow the AWS SDK's standard rules (server errors, throttling, connection errors), with a backoff of at most 500 ms. Reading a body is never retried once it has started. The origin health check always makes one attempt.
 
 ### `s3.features`
 
@@ -468,6 +565,33 @@ Asks the origin for object checksums (`x-amz-checksum-mode: ENABLED`) and valida
 
 The [memory cache](../architecture/memory-cache.md). Its limits are validated even when the cache is disabled. An object whose origin metadata is malformed or whose origin `Cache-Control` contains `no-store` or `private` is never stored, whatever this block says. With the defaults, an origin `no-cache` gives a stored object a zero lifetime, a request with `Cache-Control: no-store` bypasses the cache, and a request `no-cache` or `max-age` can force revalidation: `ttl_mode` and `request_directives` change that ([freshness](../architecture/memory-cache.md#freshness)). To size and tune it, see [Tune the memory cache](../guide/cache-tuning.md).
 
+| Field | Type | Default | Allowed |
+| --- | --- | --- | --- |
+| [`cache.enabled`](#cache-enabled) | boolean | `true` |  |
+| [`cache.max_bytes`](#cache-max-bytes) | byte size | `128MiB` | positive |
+| [`cache.max_entries`](#cache-max-entries) | integer | `10000` | positive |
+| [`cache.max_object_bytes`](#cache-max-object-bytes) | byte size | `2MiB` | positive; at most `cache.max_bytes` and `cache.max_fill_bytes` |
+| [`cache.max_fill_bytes`](#cache-max-fill-bytes) | byte size | `32MiB` | positive |
+| [`cache.max_concurrent_fills`](#cache-max-concurrent-fills) | integer | `16` | positive |
+| [`cache.max_waiters_per_key`](#cache-max-waiters-per-key) | integer | `64` | positive |
+| [`cache.fill_timeout`](#cache-fill-timeout) | duration | `30s` | positive |
+| [`cache.ttl`](#cache-ttl) | duration | `5m` | zero or positive |
+| [`cache.ttl_mode`](#cache-ttl-mode) | string | `ceiling` | `ceiling`, `floor`, `fallback` or `fixed` |
+| [`cache.negative_ttl`](#cache-negative-ttl) | duration | `5s` | zero or positive |
+| [`cache.stale_if_error`](#cache-stale-if-error) | duration | `0s` | zero or positive |
+| [`cache.request_directives`](#cache-request-directives) | string | `honor` | `honor`, `revalidate_only` or `ignore` |
+| [`cache.rules`](#cache-rules) | list of mappings | unset |  |
+| [`cache.rules[].match`](#cache-rules-match) | mapping | required | exactly one of `exact`, `prefix` and `regex` |
+| [`cache.rules[].match.exact`](#cache-rules-match-exact) | string | unset | an absolute path that does not end in `/` |
+| [`cache.rules[].match.prefix`](#cache-rules-match-prefix) | string | unset | an absolute path that ends in `/` |
+| [`cache.rules[].match.regex`](#cache-rules-match-regex) | string | unset | an RE2 regular expression of 1 to 1024 bytes |
+| [`cache.rules[].enabled`](#cache-rules-enabled) | boolean | inherits `cache.enabled` |  |
+| [`cache.rules[].ttl`](#cache-rules-ttl) | duration | inherits `cache.ttl` | zero or positive |
+| [`cache.rules[].ttl_mode`](#cache-rules-ttl-mode) | string | inherits `cache.ttl_mode` | `ceiling`, `floor`, `fallback` or `fixed` |
+| [`cache.rules[].negative_ttl`](#cache-rules-negative-ttl) | duration | inherits `cache.negative_ttl` | zero or positive |
+| [`cache.rules[].stale_if_error`](#cache-rules-stale-if-error) | duration | inherits `cache.stale_if_error` | zero or positive |
+| [`cache.rules[].request_directives`](#cache-rules-request-directives) | string | inherits `cache.request_directives` | `honor`, `revalidate_only` or `ignore` |
+
 ```yaml [config.yaml]
 cache:
   max_bytes: 512MiB
@@ -486,67 +610,76 @@ cache:
 ### `cache.max_bytes`
 
 **Type:** byte size\
-**Default:** `128MiB`
+**Default:** `128MiB`\
+**Allowed:** positive
 
-Positive. Memory charged to cache entries: bodies, metadata and a fixed overhead per entry, including entries that were replaced or removed but are still being sent. When it is full, statica evicts the least recently used entries that no response is using; when it cannot make room, it serves the object without storing it.
+Memory charged to cache entries: bodies, metadata and a fixed overhead per entry, including entries that were replaced or removed but are still being sent. When it is full, statica evicts the least recently used entries that no response is using; when it cannot make room, it serves the object without storing it.
 
 ### `cache.max_entries`
 
 **Type:** integer\
-**Default:** `10000`
+**Default:** `10000`\
+**Allowed:** positive
 
-Positive. Maximum number of entries, counted like `max_bytes`.
+Maximum number of entries, counted like `max_bytes`.
 
 ### `cache.max_object_bytes`
 
 **Type:** byte size\
-**Default:** `2MiB`
+**Default:** `2MiB`\
+**Allowed:** positive; at most `cache.max_bytes` and `cache.max_fill_bytes`
 
-Positive, at most `max_bytes` and at most `max_fill_bytes`. Largest object body stored in memory. Larger objects, and objects whose size is unknown, are streamed from the origin and not stored. Because of this rule, setting `max_bytes` or `max_fill_bytes` below `2MiB` requires a smaller `max_object_bytes` too.
+Largest object body stored in memory. Larger objects, and objects whose size is unknown, are streamed from the origin and not stored. Because of this rule, setting `max_bytes` or `max_fill_bytes` below `2MiB` requires a smaller `max_object_bytes` too.
 
 ### `cache.max_fill_bytes`
 
 **Type:** byte size\
-**Default:** `32MiB`
+**Default:** `32MiB`\
+**Allowed:** positive
 
-Positive. Memory for the bodies being read from the origin into the cache at the same time. A fill that does not fit is streamed instead, and not stored.
+Memory for the bodies being read from the origin into the cache at the same time. A fill that does not fit is streamed instead, and not stored.
 
 ### `cache.max_concurrent_fills`
 
 **Type:** integer\
-**Default:** `16`
+**Default:** `16`\
+**Allowed:** positive
 
-Positive. Maximum shared fills (origin reads into the cache) in progress at once. A request over the limit reads the origin directly, without sharing and without storing the object. It does not cap the number of origin requests.
+Maximum shared fills (origin reads into the cache) in progress at once. A request over the limit reads the origin directly, without sharing and without storing the object. It does not cap the number of origin requests.
 
 ### `cache.max_waiters_per_key`
 
 **Type:** integer\
-**Default:** `64`
+**Default:** `64`\
+**Allowed:** positive
 
-Positive. Maximum requests sharing one fill, the request that started it included: `1` disables sharing. A request over the limit reads the origin directly.
+Maximum requests sharing one fill, the request that started it included: `1` disables sharing. A request over the limit reads the origin directly.
 
 ### `cache.fill_timeout`
 
 **Type:** duration\
-**Default:** `30s`
+**Default:** `30s`\
+**Allowed:** positive
 
-Positive. Lifetime of one shared fill or revalidation, from its start; requests that join later do not extend it. It applies even when `server.request_timeout` is `0s`. When it expires, the requests still waiting get 504 Gateway Timeout, unless `cache.stale_if_error` serves an expired copy.
+Lifetime of one shared fill or revalidation, from its start; requests that join later do not extend it. It applies even when `server.request_timeout` is `0s`. When it expires, the requests still waiting get 504 Gateway Timeout, unless `cache.stale_if_error` serves an expired copy.
 
-Each request also stops waiting at its own deadline (`server.response_header_timeout`, `server.request_timeout`) and then gets 504 Gateway Timeout without a stale copy; when the last waiting request leaves, the fill is canceled. With the defaults, both 30 seconds, the request that started a fill gives up before the fill times out. To let `cache.stale_if_error` cover a slow origin, set `cache.fill_timeout` below `server.response_header_timeout` ([deadlines and cancellation](../architecture/memory-cache.md#deadlines-and-cancellation)).
+Each request also stops waiting at its own deadline (`server.response_header_timeout`, `server.request_timeout`) and then gets 504 Gateway Timeout without a stale copy; when the last waiting request leaves, the fill is canceled. With the defaults, both `30s`, the request that started a fill gives up before the fill times out ([deadlines and cancellation](../architecture/memory-cache.md#deadlines-and-cancellation)).
 
 ### `cache.ttl`
 
 **Type:** duration\
-**Default:** `5m`
+**Default:** `5m`\
+**Allowed:** zero or positive
 
-Zero or positive. How long a stored object stays fresh. `cache.ttl_mode` decides how it combines with the freshness lifetime that the origin assigns: with the default, an origin `Cache-Control` (`s-maxage`, otherwise `max-age`) or `Expires` can shorten it, never extend it. A stale entry is revalidated with the origin before it is used again. `0s` stores objects but revalidates them on every use, unless `ttl_mode` lets the origin's lifetime apply.
+How long a stored object stays fresh. `cache.ttl_mode` decides how it combines with the freshness lifetime that the origin assigns: with the default, an origin `Cache-Control` (`s-maxage`, otherwise `max-age`) or `Expires` can shorten it, never extend it. A stale entry is revalidated with the origin before it is used again. `0s` stores objects but revalidates them on every use, unless `ttl_mode` lets the origin's lifetime apply.
 
 ### `cache.ttl_mode`
 
 **Type:** string\
-**Default:** `ceiling`
+**Default:** `ceiling`\
+**Allowed:** `ceiling`, `floor`, `fallback` or `fixed`
 
-`ceiling`, `floor`, `fallback` or `fixed`. The role of `cache.ttl` when the origin assigns the object a freshness lifetime: its `s-maxage`, else `max-age`, else `Expires` minus `Date`, and zero with `no-cache` ([lifetime](../architecture/memory-cache.md#lifetime)). When the origin assigns none, every value uses the TTL.
+The role of `cache.ttl` when the origin assigns the object a freshness lifetime: its `s-maxage`, else `max-age`, else `Expires` minus `Date`, and zero with `no-cache` ([lifetime](../architecture/memory-cache.md#lifetime)). When the origin assigns none, every value uses the TTL.
 
 | Value | Lifetime when the origin assigns one |
 | --- | --- |
@@ -562,23 +695,30 @@ No value lets statica store an object whose origin metadata is malformed or cont
 ### `cache.negative_ttl`
 
 **Type:** duration\
-**Default:** `5s`
+**Default:** `5s`\
+**Allowed:** zero or positive
 
-Zero or positive. How long statica remembers that an object does not exist (a negative entry), answering requests for it without reading the origin. `0s` stores no negative entries. An origin 403 Forbidden never creates one ([negative entries](../architecture/memory-cache.md#negative-entries)).
+How long statica remembers that an object does not exist (a negative entry), answering requests for it without reading the origin. `0s` stores no negative entries. An origin 403 Forbidden never creates one ([negative entries](../architecture/memory-cache.md#negative-entries)).
 
 ### `cache.stale_if_error`
 
 **Type:** duration\
-**Default:** `0s`
+**Default:** `0s`\
+**Allowed:** zero or positive
 
-Zero or positive. How long after it expires an entry may still be served when refreshing it fails because the origin timed out (`cache.fill_timeout` included), kept throttling, or was unavailable. Unavailability includes server errors, network errors, missing credentials and provider errors without a more specific class, such as `ExpiredToken` (400). A 403, credential errors answered with 403 included, a missing object, an invalid response and an error that carries a bucket, endpoint or credential code (`NoSuchBucket`, `AuthorizationHeaderMalformed`, `InvalidAccessKeyId`, …) never qualify, and neither does an object whose origin `Cache-Control` contains `must-revalidate`, `proxy-revalidate`, `no-cache` or `s-maxage`, unless its `cache.ttl_mode` is `fixed`. A request whose own deadline passes while it waits for the origin gets 504 Gateway Timeout without a stale copy (see `cache.fill_timeout`). `0s` disables it ([stale-if-error](../architecture/memory-cache.md#stale-if-error)).
+How long after it expires an entry may still be served when refreshing it fails because the origin timed out (`cache.fill_timeout` included), kept throttling, or was unavailable. Unavailability includes server errors, network errors, missing credentials and provider errors without a more specific class, such as `ExpiredToken` (400). A 403, credential errors answered with 403 included, a missing object, an invalid response and an error that carries a bucket, endpoint or credential code (`NoSuchBucket`, `AuthorizationHeaderMalformed`, `InvalidAccessKeyId`, …) never qualify, and neither does an object whose origin `Cache-Control` contains `must-revalidate`, `proxy-revalidate`, `no-cache` or `s-maxage`, unless its `cache.ttl_mode` is `fixed`. `0s` disables it ([stale-if-error](../architecture/memory-cache.md#stale-if-error)).
+
+::: warning
+With the default timeouts, an expired copy does not cover a slow origin. A request whose own deadline passes while it waits for the origin gets 504 Gateway Timeout without a stale copy, and [`cache.fill_timeout`](#cache-fill-timeout) and [`server.response_header_timeout`](#server-response-header-timeout) are both `30s`. To serve the expired copy when the origin is slow, set `cache.fill_timeout` below `server.response_header_timeout`.
+:::
 
 ### `cache.request_directives`
 
 **Type:** string\
-**Default:** `honor`
+**Default:** `honor`\
+**Allowed:** `honor`, `revalidate_only` or `ignore`
 
-`honor`, `revalidate_only` or `ignore`. Which `Cache-Control` directives of a request the memory cache applies. Each of them can make statica read the origin ([request directives](../architecture/memory-cache.md#request-directives)):
+Which `Cache-Control` directives of a request the memory cache applies. Each of them can make statica read the origin ([request directives](../architecture/memory-cache.md#request-directives)):
 
 - `honor`: all of them. `no-store` bypasses the cache, and `no-cache` and `max-age` can make statica revalidate a fresh entry with the origin.
 - `revalidate_only`: a client can force a revalidation, never a bypass. `no-cache` and `max-age` apply; `no-store` is ignored.
@@ -589,9 +729,9 @@ The directives never change the headers of the response.
 ### `cache.rules`
 
 **Type:** list of mappings\
-**Default:** none — every object uses the global values.
+**Default:** unset — every object uses the global values.
 
-Overrides of `enabled`, `ttl`, `ttl_mode`, `negative_ttl`, `stale_if_error` and `request_directives` for some objects. The first rule whose `match` matches the object path applies; the fields it omits keep the global value, not the value of a later rule.
+Overrides of `enabled`, `ttl`, `ttl_mode`, `negative_ttl`, `stale_if_error` and `request_directives` for some objects. The first rule whose `match` matches the object path applies: each field it sets replaces the global field of the same name for the matching objects, and the fields it omits keep the global value, not the value of a later rule.
 
 The object path is `/` followed by the object key without `s3.prefix`. A request for `/docs/` uses `/docs/index.html`, and a precompressed variant keeps its suffix: `/app.js.br`. An `exact` rule for `/app.js` therefore does not cover `/app.js.br`; a `prefix` rule covers both.
 
@@ -613,84 +753,85 @@ cache:
 ### `cache.rules[].match`
 
 **Type:** mapping\
-**Default:** none — required.
+**Default:** required\
+**Allowed:** exactly one of `exact`, `prefix` and `regex`
 
-Exactly one of `exact`, `prefix` and `regex`.
+Selects the objects of the rule.
 
 ### `cache.rules[].match.exact`
 
 **Type:** string\
-**Default:** none — set one of `exact`, `prefix` or `regex`.
+**Default:** unset — a rule sets exactly one of `exact`, `prefix` and `regex`.\
+**Allowed:** an absolute path that does not end in `/`
 
 An absolute path, compared for equality. Write the decoded path (`/a b.html`, not `/a%20b.html`): percent-encoded sequences are rejected. Segments cannot be empty, `.` or `..`, and cannot contain `\` or control characters. A path ending in `/`, `/` included, is rejected because it never matches an object path; name the index object instead (`/docs/index.html`).
 
 ### `cache.rules[].match.prefix`
 
 **Type:** string\
-**Default:** none — set one of `exact`, `prefix` or `regex`.
+**Default:** unset — a rule sets exactly one of `exact`, `prefix` and `regex`.\
+**Allowed:** an absolute path that ends in `/`
 
 An absolute path ending in `/`, with the same rules as `exact`. It matches the paths under it and the path without the trailing slash: `/assets/` matches `/assets/app.js` and `/assets`. `/` matches every path.
 
 ### `cache.rules[].match.regex`
 
 **Type:** string\
-**Default:** none — set one of `exact`, `prefix` or `regex`.
+**Default:** unset — a rule sets exactly one of `exact`, `prefix` and `regex`.\
+**Allowed:** an RE2 regular expression of 1 to 1024 bytes
 
-A nonempty regular expression in [RE2 syntax](https://pkg.go.dev/regexp/syntax), at most 1024 bytes, that the whole object path must match: statica anchors it at both ends. `.*\.html` matches `/docs/index.html` but not `/docs/index.html.br` or `/page.html.bak`. Matching is case-sensitive; use the `(?i)` flag to ignore case. In YAML, write the pattern in single quotes, where `\` has no special meaning.
+A regular expression in [RE2 syntax](https://pkg.go.dev/regexp/syntax) that the whole object path must match: statica anchors it at both ends. `.*\.html` matches `/docs/index.html` but not `/docs/index.html.br` or `/page.html.bak`. Matching is case-sensitive; use the `(?i)` flag to ignore case. In YAML, write the pattern in single quotes, where `\` has no special meaning.
 
 ### `cache.rules[].enabled`
 
 **Type:** boolean\
-**Default:** none — inherits `cache.enabled`.
+**Default:** inherits `cache.enabled`
 
 `false` bypasses the memory cache for the matching objects. `true` does not enable a cache that `cache.enabled: false` disables.
 
 ### `cache.rules[].ttl`
 
 **Type:** duration\
-**Default:** none — inherits `cache.ttl`.
-
-Zero or positive. Replaces `cache.ttl` for the matching objects.
+**Default:** inherits `cache.ttl`\
+**Allowed:** zero or positive
 
 ### `cache.rules[].ttl_mode`
 
 **Type:** string\
-**Default:** none — inherits `cache.ttl_mode`.
-
-`ceiling`, `floor`, `fallback` or `fixed`. Replaces `cache.ttl_mode` for the matching objects.
+**Default:** inherits `cache.ttl_mode`\
+**Allowed:** `ceiling`, `floor`, `fallback` or `fixed`
 
 ### `cache.rules[].negative_ttl`
 
 **Type:** duration\
-**Default:** none — inherits `cache.negative_ttl`.
-
-Zero or positive. Replaces `cache.negative_ttl` for the matching objects.
+**Default:** inherits `cache.negative_ttl`\
+**Allowed:** zero or positive
 
 ### `cache.rules[].stale_if_error`
 
 **Type:** duration\
-**Default:** none — inherits `cache.stale_if_error`.
-
-Zero or positive. Replaces `cache.stale_if_error` for the matching objects.
+**Default:** inherits `cache.stale_if_error`\
+**Allowed:** zero or positive
 
 ### `cache.rules[].request_directives`
 
 **Type:** string\
-**Default:** none — inherits `cache.request_directives`.
-
-`honor`, `revalidate_only` or `ignore`. Replaces `cache.request_directives` for the matching objects.
+**Default:** inherits `cache.request_directives`\
+**Allowed:** `honor`, `revalidate_only` or `ignore`
 
 ## `index`
 
 **Type:** string\
-**Default:** `index.html`
+**Default:** `index.html`\
+**Allowed:** nonempty; a single filename
 
 Name of the directory index object. A request path ending in `/` reads `<path><index>`. A path without the trailing slash, whose own object does not exist while `<path>/<index>` does, gets 308 Permanent Redirect to the path with a slash, query kept ([from path to object](../architecture/request-flow.md#from-path-to-object)). A single filename: no `/`, not `.` or `..`, no `\` or control characters ([Provide index files](../guide/publishing.md#provide-index-files)).
 
 ## `not_found`
 
 **Type:** string\
-**Default:** none — statica answers with a built-in plain-text 404 page.
+**Default:** unset — statica answers with a built-in plain-text 404 page.\
+**Allowed:** a relative object key
 
 Object key, relative to `s3.prefix`, of a custom 404 page, served with status 404 Not Found when no object, index redirect or single-page-app fallback matches the request. Origin errors and denied access never use it. The key has no leading or trailing `/`, no empty, `.` or `..` segments, and no `\` or control characters ([Add a custom 404 page](../guide/publishing.md#add-a-custom-404-page)).
 
@@ -701,10 +842,15 @@ Object key, relative to `s3.prefix`, of a custom 404 page, served with status 40
 
 How statica answers some origin errors.
 
+| Field | Type | Default | Allowed |
+| --- | --- | --- | --- |
+| [`errors.access_denied`](#errors-access-denied) | string | `not_found` | `not_found` or `bad_gateway` |
+
 ### `errors.access_denied`
 
 **Type:** string\
-**Default:** `not_found`
+**Default:** `not_found`\
+**Allowed:** `not_found` or `bad_gateway`
 
 Response to a 403 Forbidden from the origin: `not_found` answers 404 Not Found, `bad_gateway` answers 502 Bad Gateway. Either way, statica stops resolving the request (no index redirect, single-page-app fallback or `not_found` page) and stores no negative entry. See [Access denied](../architecture/access-denied.md), and [Choose how denials look to visitors](../guide/s3-providers.md#choose-how-denials-look-to-visitors).
 
@@ -715,9 +861,19 @@ Without the `s3:ListBucket` permission, S3 answers 403 instead of 404 for an obj
 ## `redirects`
 
 **Type:** list of mappings\
-**Default:** none — no redirect rules.
+**Default:** unset — no redirect rules.
 
 Ordered redirect rules. statica evaluates them after the host, method and request-target checks and before reading the origin, so a rule also redirects paths that exist as objects ([redirect rules](../architecture/request-flow.md#redirect-rules)). The first matching rule answers with its status and a `Location` header. [Configure redirects](../guide/redirects.md) shows common rules.
+
+| Field | Type | Default | Allowed |
+| --- | --- | --- | --- |
+| [`redirects[].from`](#redirects-from) | string | required | an absolute path template with an optional query |
+| [`redirects[].to`](#redirects-to) | string | required | a local absolute path or an `https://` URL template |
+| [`redirects[].status`](#redirects-status) | integer | required | `301`, `302`, `307` or `308` |
+| [`redirects[].query`](#redirects-query) | string | `drop` | `drop`, `preserve` or `unmatched` |
+| [`redirects[].captures`](#redirects-captures) | mapping of mappings | unset | names of placeholders bound in `from` |
+| [`redirects[].captures.<name>`](#redirects-captures-name) | mapping | unset |  |
+| [`redirects[].captures.<name>.pattern`](#redirects-captures-name-pattern) | string | required | a nonempty RE2 regular expression |
 
 | Item | Rules |
 | --- | --- |
@@ -748,28 +904,32 @@ redirects:
 ### `redirects[].from`
 
 **Type:** string\
-**Default:** none — required.
+**Default:** required\
+**Allowed:** an absolute path template with an optional query
 
 Source template: an absolute path, then an optional `?query`. It cannot start with `//` or contain a fragment. A literal segment cannot decode to `.` or `..`, or to text containing `/`, `\`, a percent-encoded sequence or control characters. Empty segments are allowed only at the end. A literal segment that starts with `.` (after decoding) is rejected, except a first segment `.well-known`: requests for such hidden paths get 404 Not Found before the rules run ([target validation](../architecture/request-flow.md#target-validation)).
 
 ### `redirects[].to`
 
 **Type:** string\
-**Default:** none — required.
+**Default:** required\
+**Allowed:** a local absolute path or an `https://` URL template
 
 Destination template. A placeholder in a path segment must hold a valid segment; a query value that contains `/` cannot fill a path segment, and such a request gets 400 Bad Request.
 
 ### `redirects[].status`
 
 **Type:** integer\
-**Default:** none — required.
+**Default:** required\
+**Allowed:** `301`, `302`, `307` or `308`
 
-301, 302, 307 or 308.
+Status of the redirect response.
 
 ### `redirects[].query`
 
 **Type:** string\
-**Default:** `drop`
+**Default:** `drop`\
+**Allowed:** `drop`, `preserve` or `unmatched`
 
 What happens to the query of the request:
 
@@ -782,23 +942,25 @@ What happens to the query of the request:
 ### `redirects[].captures`
 
 **Type:** mapping of mappings\
-**Default:** none — placeholders accept any nonempty value of up to 256 bytes.
+**Default:** unset — placeholders accept any nonempty value of up to 256 bytes.\
+**Allowed:** names of placeholders bound in `from`
 
 Constraints on placeholders, by placeholder name. Each name must be bound in `from`.
 
 ### `redirects[].captures.<name>`
 
 **Type:** mapping\
-**Default:** none — the placeholder is unconstrained.
+**Default:** unset — the placeholder is unconstrained.
 
 The constraint for placeholder `<name>`.
 
 ### `redirects[].captures.<name>.pattern`
 
 **Type:** string\
-**Default:** none — required.
+**Default:** required\
+**Allowed:** a nonempty RE2 regular expression
 
-Nonempty RE2 regular expression that the whole decoded value must match: statica anchors it at both ends.
+RE2 regular expression that the whole decoded value must match: statica anchors it at both ends.
 
 ## `headers`
 
@@ -807,10 +969,16 @@ Nonempty RE2 regular expression that the whole decoded value must match: statica
 
 Static response headers.
 
+| Field | Type | Default | Allowed |
+| --- | --- | --- | --- |
+| [`headers.set`](#headers-set) | mapping of strings | `{}` | unique header names that are not reserved |
+| [`headers.set.<name>`](#headers-set-name) | string | unset | nonempty; no control characters other than tab |
+
 ### `headers.set`
 
 **Type:** mapping of strings\
-**Default:** `{}`
+**Default:** `{}`\
+**Allowed:** unique header names that are not reserved
 
 Headers added to every response statica writes on the public listener, errors and redirects included, but not to the admin listener. Responses that the Go HTTP server writes before statica handles the request (431 for oversized headers, 400 for some malformed requests) carry none of them. `X-Content-Type-Options: nosniff` is always sent, and this setting cannot change it ([response safety](../architecture/security.md#response-safety)). Names are HTTP header names, case-insensitive, unique after canonicalization, and not reserved:
 
@@ -836,9 +1004,10 @@ headers:
 ### `headers.set.<name>`
 
 **Type:** string\
-**Default:** none — one entry per header.
+**Default:** unset — no header is added.\
+**Allowed:** nonempty; no control characters other than tab
 
-Value of the header `<name>`, sent as written. It is nonempty and may contain tabs but no other control characters (C0, `DEL` and C1).
+Value of the header `<name>`, sent as written. The control characters are C0, `DEL` and C1.
 
 ## `cache_control`
 
@@ -846,6 +1015,16 @@ Value of the header `<name>`, sent as written. It is nonempty and may contain ta
 **Default:** `{}`
 
 The `Cache-Control` header of responses that serve an object with status 200 OK, and of the 206 Partial Content and 304 Not Modified responses derived from them (a 304 also keeps `Expires` and `Age`). Every other response, the `not_found` page and the single-page-app fallback included, carries `Cache-Control: no-store`. This block does not affect the memory cache. See [Cache-Control and Age](../architecture/cache-control.md), and [Control browser and CDN caching](../guide/browser-caching.md) for common policies.
+
+| Field | Type | Default | Allowed |
+| --- | --- | --- | --- |
+| [`cache_control.default`](#cache-control-default) | string | `auto` | `auto` or a `Cache-Control` value |
+| [`cache_control.rules`](#cache-control-rules) | list of mappings | unset |  |
+| [`cache_control.rules[].match`](#cache-control-rules-match) | mapping | required | exactly one of `exact`, `prefix` and `regex` |
+| [`cache_control.rules[].match.exact`](#cache-control-rules-match-exact) | string | unset | an absolute path |
+| [`cache_control.rules[].match.prefix`](#cache-control-rules-match-prefix) | string | unset | an absolute path that ends in `/` |
+| [`cache_control.rules[].match.regex`](#cache-control-rules-match-regex) | string | unset | an RE2 regular expression of 1 to 1024 bytes |
+| [`cache_control.rules[].value`](#cache-control-rules-value) | string | required | `auto` or a `Cache-Control` value |
 
 ```yaml [config.yaml]
 cache_control:
@@ -861,7 +1040,8 @@ cache_control:
 ### `cache_control.default`
 
 **Type:** string\
-**Default:** `auto`
+**Default:** `auto`\
+**Allowed:** `auto` or a `Cache-Control` value
 
 Value for the requests no rule matches: `auto` or a `Cache-Control` value.
 
@@ -885,49 +1065,58 @@ An explicit value replaces the origin's `Cache-Control` and `Expires`, an origin
 ### `cache_control.rules`
 
 **Type:** list of mappings\
-**Default:** none — `cache_control.default` applies to every request.
+**Default:** unset — `cache_control.default` applies to every request.
 
 The first rule whose `match` matches the decoded request path sets the value. Unlike `cache.rules`, matching uses the request path itself: a request for `/docs/` is matched as `/docs/`, not as `/docs/index.html` ([which path a rule matches](../architecture/cache-control.md#which-path-a-rule-matches)).
 
 ### `cache_control.rules[].match`
 
 **Type:** mapping\
-**Default:** none — required.
+**Default:** required\
+**Allowed:** exactly one of `exact`, `prefix` and `regex`
 
-Exactly one of `exact`, `prefix` and `regex`.
+Selects the requests of the rule.
 
 ### `cache_control.rules[].match.exact`
 
 **Type:** string\
-**Default:** none — set one of `exact`, `prefix` or `regex`.
+**Default:** unset — a rule sets exactly one of `exact`, `prefix` and `regex`.\
+**Allowed:** an absolute path
 
 An absolute path compared for equality with the request path, with the syntax of [`cache.rules[].match.exact`](#cache-rules-match-exact). A path ending in `/` matches that directory request.
 
 ### `cache_control.rules[].match.prefix`
 
 **Type:** string\
-**Default:** none — set one of `exact`, `prefix` or `regex`.
+**Default:** unset — a rule sets exactly one of `exact`, `prefix` and `regex`.\
+**Allowed:** an absolute path that ends in `/`
 
 An absolute path ending in `/`, matched like [`cache.rules[].match.prefix`](#cache-rules-match-prefix).
 
 ### `cache_control.rules[].match.regex`
 
 **Type:** string\
-**Default:** none — set one of `exact`, `prefix` or `regex`.
+**Default:** unset — a rule sets exactly one of `exact`, `prefix` and `regex`.\
+**Allowed:** an RE2 regular expression of 1 to 1024 bytes
 
 A regular expression that the whole request path must match, with the syntax and limits of [`cache.rules[].match.regex`](#cache-rules-match-regex). `.*\.html` does not match a directory request such as `/docs/` ([which path a rule matches](../architecture/cache-control.md#which-path-a-rule-matches)).
 
 ### `cache_control.rules[].value`
 
 **Type:** string\
-**Default:** none — required.
+**Default:** required\
+**Allowed:** `auto` or a `Cache-Control` value
 
 `auto` or a `Cache-Control` value, with the rules of `cache_control.default`.
 
 ## `cors`
 
 **Type:** mapping\
-**Default:** none — statica sends no CORS headers, and `OPTIONS` gets 405 Method Not Allowed.
+**Default:** unset — statica sends no CORS headers, and `OPTIONS` gets 405 Method Not Allowed.
+
+| Field | Type | Default | Allowed |
+| --- | --- | --- | --- |
+| [`cors.allowed_origins`](#cors-allowed-origins) | list of strings | required | nonempty; unique `scheme://host[:port]` origins |
 
 Cross-origin access to `GET` and `HEAD` ([methods and CORS preflight](../architecture/request-flow.md#methods-and-cors-preflight)). With this block:
 
@@ -941,9 +1130,10 @@ See [Allow cross-origin reads](../guide/headers-and-cors.md#allow-cross-origin-r
 ### `cors.allowed_origins`
 
 **Type:** list of strings\
-**Default:** none — required when `cors` is present.
+**Default:** required\
+**Allowed:** nonempty; unique `scheme://host[:port]` origins
 
-Nonempty list of exact origins, `scheme://host` with an optional [port](#ports). The scheme is `http` or `https`; there is no path (not even `/`), query, fragment, credentials or wildcard. Hostnames are compared after normalization and default ports are ignored, so `https://example.com:443` and `https://example.com` are the same origin; equivalent entries are rejected.
+Exact origins, `scheme://host` with an optional [port](#ports). The scheme is `http` or `https`; there is no path (not even `/`), query, fragment, credentials or wildcard. Hostnames are compared after normalization and default ports are ignored, so `https://example.com:443` and `https://example.com` are the same origin; equivalent entries are rejected.
 
 ## `compression`
 
@@ -951,6 +1141,11 @@ Nonempty list of exact origins, `scheme://host` with an optional [port](#ports).
 **Default:** `{}`
 
 Responses are never compressed on the fly; statica can serve precompressed variants published next to an object ([Precompressed variants](../architecture/precompressed-variants.md)). [Serve precompressed files](../guide/precompressed-files.md) shows how to produce and upload them.
+
+| Field | Type | Default | Allowed |
+| --- | --- | --- | --- |
+| [`compression.mode`](#compression-mode) | string | `off` | `off` or `precompressed` |
+| [`compression.encodings`](#compression-encodings) | list of strings | `[br, gzip]` | `br` or `gzip`; nonempty, without duplicates, only in `precompressed` mode |
 
 ```yaml [config.yaml]
 compression:
@@ -961,7 +1156,8 @@ compression:
 ### `compression.mode`
 
 **Type:** string\
-**Default:** `off`
+**Default:** `off`\
+**Allowed:** `off` or `precompressed`
 
 - `off`: statica serves the object itself.
 - `precompressed`: for a request with an `Accept-Encoding` header, statica also considers the variants `<key>.br` (Brotli) and `<key>.gz` (gzip) and serves the preferred one that exists, with `Content-Encoding` and `Vary: Accept-Encoding`.
@@ -971,14 +1167,21 @@ In both modes, when the object exists but the request accepts none of its availa
 ### `compression.encodings`
 
 **Type:** list of strings\
-**Default:** `[br, gzip]` in `precompressed` mode.
+**Default:** `[br, gzip]`\
+**Allowed:** `br` or `gzip`; nonempty, without duplicates, only in `precompressed` mode
 
-The codings statica looks for: `br`, `gzip`, or both, without duplicates. When the client accepts several with the same quality, the list order decides. Not allowed in `off` mode.
+The codings statica looks for. `br` selects the variant `<key>.br` and `gzip` the variant `<key>.gz`: the value is the name of the coding, not the suffix. When the client accepts several with the same quality, the list order decides. In `off` mode the field must be omitted, and the default does not apply.
 
 ## `spa`
 
 **Type:** mapping\
-**Default:** none — no single-page-app fallback.
+**Default:** unset — no single-page-app fallback.
+
+| Field | Type | Default | Allowed |
+| --- | --- | --- | --- |
+| [`spa.fallback`](#spa-fallback) | string | required | a relative object key |
+| [`spa.include_prefixes`](#spa-include-prefixes) | list of strings | unset | nonempty; unique absolute paths that end in `/` |
+| [`spa.exclude_prefixes`](#spa-exclude-prefixes) | list of strings | unset | unique absolute paths that end in `/` |
 
 Serves an app shell for client-side routes ([eligibility rules](../architecture/spa-fallback.md#eligibility-rules); [Serve a single-page application](../guide/single-page-apps.md)). When the object for a request does not exist and there is no index redirect, statica serves `spa.fallback` with status 200 OK, `Cache-Control: no-store` and `Vary: Accept`, provided that:
 
@@ -997,21 +1200,24 @@ spa:
 ### `spa.fallback`
 
 **Type:** string\
-**Default:** none — required when `spa` is present.
+**Default:** required\
+**Allowed:** a relative object key
 
 Object key of the app shell, relative to `s3.prefix`, with the rules of `not_found`.
 
 ### `spa.include_prefixes`
 
 **Type:** list of strings\
-**Default:** none — every path whose last segment has no `.` qualifies.
+**Default:** unset — every path whose last segment has no `.` qualifies.\
+**Allowed:** nonempty; unique absolute paths that end in `/`
 
-When present, a nonempty list: the fallback applies only under these prefixes, including paths whose last segment contains a `.`. Each entry is a unique absolute path ending in `/`, with the syntax of [`cache.rules[].match.prefix`](#cache-rules-match-prefix). `/app/` matches `/app` and every path under `/app/`.
+The fallback applies only under these prefixes, including paths whose last segment contains a `.`. Each entry is an absolute path ending in `/`, with the syntax of [`cache.rules[].match.prefix`](#cache-rules-match-prefix). `/app/` matches `/app` and every path under `/app/`.
 
 ### `spa.exclude_prefixes`
 
 **Type:** list of strings\
-**Default:** none — no path is excluded.
+**Default:** unset — no path is excluded.\
+**Allowed:** unique absolute paths that end in `/`
 
 Paths under these prefixes never get the fallback, even when they are also under an included prefix. Same syntax as `spa.include_prefixes`; an empty list excludes nothing.
 
@@ -1022,12 +1228,20 @@ Paths under these prefixes never get the fallback, even when they are also under
 
 Logs, written as logfmt events on standard output. The [log reference](./logs.md) lists every event and field, and [Work with the logs](../guide/logs.md) shows how to read them.
 
+| Field | Type | Default | Allowed |
+| --- | --- | --- | --- |
+| [`observability.log_level`](#observability-log-level) | string | `info` | `debug`, `info`, `warn` or `error` |
+| [`observability.access_log`](#observability-access-log) | boolean | `true` |  |
+| [`observability.log_client_ip`](#observability-log-client-ip) | boolean | `true` |  |
+| [`observability.redact_query_params`](#observability-redact-query-params) | list of strings | `[token, access_token, api_key, password, secret, signature, X-Amz-Credential, X-Amz-Signature, X-Amz-Security-Token]` | unique names, ignoring case, each nonempty and without control characters |
+
 ### `observability.log_level`
 
 **Type:** string\
-**Default:** `info`
+**Default:** `info`\
+**Allowed:** `debug`, `info`, `warn` or `error`
 
-Minimum level of the events written: `debug`, `info`, `warn` or `error`. It applies to every event, request events included; their level depends on the outcome of the request ([levels](./logs.md#levels)).
+Minimum level of the events written. It applies to every event, request events included; their level depends on the outcome of the request ([levels](./logs.md#levels)).
 
 ### `observability.access_log`
 
@@ -1046,6 +1260,7 @@ Minimum level of the events written: `debug`, `info`, `warn` or `error`. It appl
 ### `observability.redact_query_params`
 
 **Type:** list of strings\
-**Default:** `[token, access_token, api_key, password, secret, signature, X-Amz-Credential, X-Amz-Signature, X-Amz-Security-Token]`
+**Default:** `[token, access_token, api_key, password, secret, signature, X-Amz-Credential, X-Amz-Signature, X-Amz-Security-Token]`\
+**Allowed:** unique names, ignoring case, each nonempty and without control characters
 
-Query parameters whose values are replaced with `[REDACTED]` in the logged `path`. Names are literal, not patterns, and are compared with the decoded parameter name, ignoring ASCII case. Each entry is nonempty, has no control characters and is unique ignoring case. A list replaces the default list; `[]` logs queries without redaction. A query that cannot be decoded is left out of the logged path, also with `[]`. Responses are not affected ([query redaction](./logs.md#query-redaction)).
+Query parameters whose values are replaced with `[REDACTED]` in the logged `path`. Names are literal, not patterns, and are compared with the decoded parameter name, ignoring ASCII case. A list replaces the default list; `[]` logs queries without redaction. A query that cannot be decoded is left out of the logged path, also with `[]`. Responses are not affected ([query redaction](./logs.md#query-redaction)).

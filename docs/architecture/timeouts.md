@@ -66,7 +66,7 @@ Connecting to the origin, and to AWS credential providers, is bounded per attemp
 - the origin timer runs only while statica waits for the origin to deliver data;
 - the client timer runs only while statica waits for a write or flush to the client to complete, and every completed write starts it afresh.
 
-A download that keeps making progress therefore continues for as long as it needs, unless `server.request_timeout` is set.
+A download that keeps making progress therefore continues for as long as it needs, unless `server.request_timeout` is set, and the two limits never blame one side for the other: a client that receives slowly but steadily is not cut, and a stalled origin is not charged to the client. Progress is measured at statica's own I/O boundary: bytes accepted into socket or protocol buffers count as written, even if the client has not received them yet.
 
 ### Shared fills
 
@@ -106,67 +106,22 @@ A client that disconnects receives nothing and is not an origin failure: the req
 
 The status is already on the wire and cannot change, and no error page is ever appended to a started body. When a transfer fails, statica aborts it: an HTTP/1.1 connection is closed, and an HTTP/2 stream is reset while the connection keeps serving its other streams. The client receives a truncated body: fewer bytes than `Content-Length` announced, or a chunked body without its end. A failure after the last announced byte can no longer truncate the body: a checksum mismatch found at the end of the origin body, or a deadline or shutdown that interrupts the read of that end. An HTTP/1.1 client then has the whole body, and an HTTP/2 client sees the stream reset before its end.
 
-The request is logged with `outcome=incomplete`, the `bytes_written` it sent and a [`termination_reason`](../reference/logs.md#termination-reason), and counted in `statica_http_requests_total{outcome="incomplete"}` and `statica_stream_failures_total`, labeled by reason:
-
-| `termination_reason` | Cause | Log level |
-| --- | --- | --- |
-| `origin_read_timeout` | `s3.read_idle_timeout` expired during an origin read | `error` |
-| `origin_read_failure` | Reading the origin body failed for another reason | `error` |
-| `checksum_mismatch` | The origin body failed checksum validation (`s3.features.checksums`) | `error` |
-| `length_mismatch` | statica counted more or fewer body bytes than the announced length | `error` |
-| `client_write_timeout` | `server.write_idle_timeout` expired during a write | `warn` |
-| `client_write_failure` | A write to the client failed | `warn` |
-| `disconnect` | The client went away | `warn` |
-| `total_deadline` | `server.request_timeout` expired | `warn` |
-| `shutdown` | Shutdown canceled the transfer | `warn` |
-
-## Slow clients and slow origins
-
-The two inactivity limits never blame one side for the other:
-
-- **A slow client.** While statica waits for a write to complete, no origin read is pending, so the origin timer does not run. A client that receives slowly but steadily is never cut by `server.write_idle_timeout`; a client that stops reading is, and is logged with `client_write_timeout`.
-- **A slow origin.** While statica waits for origin data, no client write is pending, so the client timer does not run. An origin that stalls longer than `s3.read_idle_timeout` ends the transfer with `origin_read_timeout`.
-
-Progress is measured at statica's own I/O boundary: bytes accepted into socket or protocol buffers count as written, even if the client has not received them yet.
+The request is logged with `outcome=incomplete`, the `bytes_written` it sent and the [`termination_reason`](../reference/logs.md#termination-reason) that names the cause, at `error` level when the origin ended the transfer and at `warn` otherwise. It is counted in `statica_http_requests_total{outcome="incomplete"}` and in `statica_stream_failures_total`, labeled by reason.
 
 ## HTTP/2
 
-HTTP/2 is offered through TLS negotiation when `server.tls` is configured; without TLS, only HTTP/1.1 is served. With HTTP/2, the write inactivity limit, the origin read limit and `server.request_timeout` apply to each stream on its own. A stream that times out or fails is reset, and the other streams of the same connection continue. Each stream takes its own request slot, while the connection counts once against `server.max_connections`.
-
-## Request and connection capacity
-
-- **Requests.** `server.max_concurrent_requests` is the number of request slots. A request takes a slot as soon as its headers are read, or is rejected at once with 503 Service Unavailable: there is no queue. The rejection is logged at `warn` with `error_class=request_capacity` and counted in `statica_http_rejected_requests_total{reason="request_capacity"}`. A slot is held until the response ends, so a long download holds its slot for its whole duration.
-- **Connections.** `server.max_connections` caps open connections on the public listener. At the cap, statica stops accepting: new connections wait in the operating system's listen backlog, whose size and overflow behavior the operating system controls, and are accepted as other connections close. Connections in a TLS handshake and idle keep-alive connections count against the cap.
-
-The admin listener has its own limits, so a saturated public listener does not block `/livez`, `/readyz` or `/metrics`.
+HTTP/2 is offered through TLS negotiation when `server.tls` is configured; without TLS, only HTTP/1.1 is served. With HTTP/2, the write inactivity limit, the origin read limit and `server.request_timeout` apply to each stream on its own. A stream that times out or fails is reset, and the other streams of the same connection continue. Each stream takes its own request slot, while the connection counts once against `server.max_connections` ([request capacity](./request-flow.md#request-capacity)).
 
 ## Long downloads and resumption
 
 - With `server.request_timeout: 0s`, statica sets no limit on the duration of a transfer: only the inactivity limits apply.
 - A positive `server.request_timeout` sets an absolute ceiling for every request, small assets included, measured from admission.
 - A slow transfer holds a request slot and a connection for as long as it runs.
+- A shutdown cancels the transfers still running at its drain deadline, whatever their own limits are: a disabled `server.request_timeout` does not extend it ([long downloads](./lifecycle.md#long-downloads)).
 - An interrupted transfer is neither retried nor resumed by statica. Clients that support resumption, such as download managers or `curl --continue-at -`, request the missing bytes with `Range`. Adding `If-Range` protects a client against a changed object: statica serves such a range under the rules in [Ranges and conditional requests](./ranges-and-conditionals.md), and if the object changed, `If-Range` no longer matches and the client receives the complete new object with 200.
 - Proxies and load balancers in front of statica have their own timeouts and can end a long transfer on their own. Align them with the limits above ([Align the time limits](../guide/behind-a-proxy.md#align-the-time-limits)).
 
-## Shutdown cuts long downloads
-
-On a shutdown signal, statica stops accepting connections and lets active requests continue within `server.shutdown_timeout`. Shortly before the budget ends, at `server.shutdown_timeout` minus a reserve of a quarter of the budget capped at one second, it cancels the requests still active. Their transfers end incomplete with `termination_reason=shutdown`, whatever their own limits are: a disabled `server.request_timeout` does not extend shutdown. Give your process manager a termination grace period longer than `server.shutdown_timeout` ([Grace period and pre-stop delay](../guide/deployment.md#grace-period-and-pre-stop-delay)).
-
-## What statica does not do
-
-- It does not use whole-connection read or write deadlines, which would cut downloads that are still progressing.
-- It does not retry an origin read once the response headers are sent, and does not resume interrupted downloads.
-- It does not queue requests beyond `server.max_concurrent_requests`.
-- It does not rate-limit clients or apply per-client limits.
-
 ## Related pages
 
-- [Request flow and URL mapping](./request-flow.md): admission and request capacity.
-- [Memory cache](./memory-cache.md): shared fills and their limits.
-- [Startup, readiness and shutdown](./lifecycle.md): the shutdown schedule in detail.
-- [Ranges and conditional requests](./ranges-and-conditionals.md): how a client resumes a download.
-- [Access denied](./access-denied.md): an origin failure that is not a timeout.
-- [Run behind a reverse proxy, CDN or ingress](../guide/behind-a-proxy.md#align-the-time-limits): aligning a proxy's timeouts with statica's.
-- [Deploy, roll out and shut down](../guide/deployment.md#shut-down-without-cutting-requests): the grace period around `server.shutdown_timeout`.
-- [Log reference](../reference/logs.md#termination-reason): every `termination_reason`.
-- [Configuration reference](../reference/configuration.md): every timeout key.
+- [Shared fills](./memory-cache.md#shared-fills): the fills that `cache.fill_timeout` bounds.
+- [Configuration reference](../reference/configuration.md): the default and the allowed values of every timeout key.

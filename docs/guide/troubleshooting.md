@@ -2,6 +2,15 @@
 
 Find the cause of a problem from its symptom: each section lists the likely causes, how to confirm which one applies, and how to fix it.
 
+| Symptom | Section |
+| --- | --- |
+| statica does not start | [Exit status 2](#statica-exits-with-status-2-at-startup) · [`startup_failed`, exit status 1](#startup-failed-exit-status-1) |
+| A status that visitors get | [400](#_400-bad-request) · [404 for every URL](#every-url-answers-404) · [406](#_406-not-acceptable) · [421](#_421-misdirected-request) · [502](#_502-bad-gateway) · [503](#_503-service-unavailable) · [504](#_504-gateway-timeout) |
+| An instance or pod is not ready, or keeps restarting | [Readiness stays not ready](#readiness-stays-not-ready) · [On Kubernetes](#on-kubernetes) |
+| Slow or wrong content | [Downloads are slow or interrupted](#downloads-are-slow-or-interrupted) · [Origin traffic or latency grows with the load](#origin-traffic-or-latency-grows-with-the-load) · [Old content after publishing](#old-content-after-publishing) |
+| A feature does not apply | [Single-page-app routes answer 404](#single-page-app-routes-answer-404) · [Precompressed variants are not served](#precompressed-variants-are-not-served) |
+| Missing logs | [Log lines are missing](#log-lines-are-missing) |
+
 ## Where to look
 
 - **Standard error** carries the one-line reason when a command fails: `statica: <message>`.
@@ -47,17 +56,9 @@ statica: cannot bind the public listener
 | `origin_client`, `health_client` | The AWS configuration could not be loaded: no region found, a discovered region with characters other than letters, digits, `-` and `_`, a named profile that does not exist, or a timeout of `server.response_header_timeout`. | Run `statica config check-origin`: it reports `origin check failed: origin configuration`, or `origin check timed out`. Set `s3.region` or `AWS_REGION`, and check the profile. |
 | Any other stage | An internal failure while building a component. | Report it with the `stage`. |
 
-[Startup](../architecture/lifecycle.md#construct-then-bind) describes every stage. A failure takes precedence over a signal that arrives at the same time: `signal_pending=true` marks that case.
+[`startup_failed`](../reference/logs.md#startup-failed) describes every stage.
 
-## `config validate` passes but `serve` fails
-
-`config validate` is offline: it does not contact AWS, resolve the region or bind anything. These problems appear only when `serve` or `config check-origin` starts:
-
-- **A discovered region.** Without `s3.region`, the region must be found in the AWS configuration and contain only letters, digits, `-` and `_`; otherwise startup fails with `startup_failed stage=origin_client`.
-- **Listen addresses that bind the same socket.** `config validate` compares the hosts of `server.listen` and `admin.listen` without resolving them: equal hosts, a host on every interface and two loopback hosts on the same port are rejected, but two different names that resolve to the same address pass, then fail with `startup_failed stage=bind_admin`.
-- **Credentials and permissions.** `config validate` does not check them, and `serve` starts without checking them; it becomes ready unless the origin health check is enabled. See [Every URL answers 404](#every-url-answers-404) and [502 Bad Gateway](#_502-bad-gateway).
-
-Run `statica config check-origin` with the same file and environment as `serve` to catch the origin problems before a rollout.
+`statica config validate` cannot catch these failures: it is offline, so it neither resolves the region nor binds anything. It does not check credentials either, and neither does `serve`: an instance with wrong credentials starts, then answers as in [Every URL answers 404](#every-url-answers-404) or [502 Bad Gateway](#_502-bad-gateway). Run `statica config check-origin` with the same file and environment as `serve` before a rollout.
 
 ## 400 Bad Request
 
@@ -129,7 +130,7 @@ To tell cause 3 from cause 1, request a URL whose object certainly exists, such 
 
 ## 504 Gateway Timeout
 
-**Likely cause.** The preparation budget ran out. [`server.response_header_timeout`](../reference/configuration.md#server-response-header-timeout) (`30s`) expired before the response headers: the origin is slow or unreachable, attempts and backoff used up the budget, or a shared fill did not finish in time. With [`server.request_timeout`](../reference/configuration.md#server-request-timeout) set, that limit can end the request first.
+**Likely cause.** The preparation budget ran out. [`server.response_header_timeout`](../reference/configuration.md#server-response-header-timeout) (`30s`) expired before the response headers: the origin is slow or unreachable, attempts and backoff used up the budget, a shared fill did not finish in time, or statica has no credentials and the AWS SDK spent the budget looking for a machine role. With [`server.request_timeout`](../reference/configuration.md#server-request-timeout) set, that limit can end the request first.
 
 **Confirm.** The access event has `level=error`, `termination_reason=preparation_timeout` (or `total_deadline` for `server.request_timeout`) and `error_class=origin_timeout` ([before the headers](../architecture/timeouts.md#before-the-headers)). These requests count in `statica_http_requests_total{status="504", outcome="origin_failure"}`. Look also at `statica_origin_header_duration_seconds` and at `statica_origin_operations_total{result="timeout"}`. Each attempt to connect to the origin, TLS handshake included, is bounded by `s3.response_header_timeout` (`10s`), so a blocked network path shows up as origin timeouts.
 
@@ -166,6 +167,18 @@ A client that goes away before the headers, often on its own timeout or a proxy'
 
 A missing health key is reported as `ambiguous_not_found` on providers that answer 404 and on AWS with `s3:ListBucket`, and as `denied` on AWS without it; never as `not_found`. Fix the cause the result points to; [Health checks and readiness](./health-checks.md#verify-it) lists what each result means.
 
+## On Kubernetes
+
+| Symptom | Likely cause | Fix |
+| --- | --- | --- |
+| The pod runs but never becomes ready, and its probes are refused. | The listeners are on their default loopback addresses, which the kubelet and the Service cannot reach. | Set `server.listen` and `admin.listen` to the pod's interfaces, such as `:8080` and `:9090` ([the configuration](./kubernetes.md#the-configuration)). |
+| The pod never becomes ready, and `/readyz` answers 503. | The origin health check has not succeeded. | See [Readiness stays not ready](#readiness-stays-not-ready). |
+| `CrashLoopBackOff`. | statica exits at startup. `kubectl logs --previous` shows the reason: a `statica:` message for exit status 2, a `startup_failed` event for exit status 1. | See the two sections on startup above. For exit status 2, the ConfigMap usually has no `config.yaml` key or has invalid content; a ConfigMap that does not exist keeps the pod in `ContainerCreating`. |
+| `OOMKilled`. | The container's memory limit is too close to the cache limits. | Size the limit and `GOMEMLIMIT` from `cache.max_bytes` and `cache.max_fill_bytes` ([Size the memory](./kubernetes.md#size-the-memory)). |
+| Refused or reset connections during a rollout. | The pod received SIGTERM while the Service still sent it new connections, or the grace period ended before the drain. | Add the `preStop` delay, and keep `terminationGracePeriodSeconds` above the delay plus `server.shutdown_timeout` ([the manifests](./kubernetes.md#the-manifests)). |
+| Every URL answers 404 or 502 after a deployment. | The pod has no credentials, or its ServiceAccount is bound to a role that cannot read the bucket. | Check the role annotation or the Pod Identity association ([Give the pods credentials](./kubernetes.md#give-the-pods-credentials)), then see [Every URL answers 404](#every-url-answers-404). |
+| A changed ConfigMap has no effect. | statica reads its configuration once, at startup. | Restart the pods ([Change the configuration](./kubernetes.md#change-the-configuration)). |
+
 ## Downloads are slow or interrupted
 
 **Likely causes.** A response cut after its headers keeps its status, often 200, and ends early. The access event has `outcome=incomplete` and a `termination_reason` ([after the headers](../architecture/timeouts.md#after-the-headers)):
@@ -177,7 +190,7 @@ A missing health key is reported as `ambiguous_not_found` on providers that answ
 | `origin_read_timeout` | The origin sent no data for `s3.read_idle_timeout`. | Check the origin and the network path. |
 | `origin_read_failure`, `checksum_mismatch`, `length_mismatch` | Reading the body from the origin failed, its checksum did not match, or the origin sent a body of another length than it announced. | Check the origin; with `s3.features.checksums`, the stored object may be corrupt. |
 | `total_deadline` | `server.request_timeout` ended the transfer. | Raise or disable it for large files. |
-| `shutdown` | A shutdown reached its drain deadline. | Raise `server.shutdown_timeout` and the grace period together ([Deploy, roll out and shut down](./deployment.md#grace-period-and-pre-stop-delay)). |
+| `shutdown` | A shutdown reached its drain deadline. | Raise `server.shutdown_timeout` and the grace period together ([Deploy, roll out and shut down](./deployment.md#shut-down-without-cutting-requests)). |
 
 **Confirm.** `statica_stream_failures_total` by `reason` shows which cause dominates. The origin's reasons are logged at `error`, the others at `warn`. statica neither retries nor resumes a cut transfer; clients that resume with `Range` and `If-Range` get the missing bytes ([long downloads and resumption](../architecture/timeouts.md#long-downloads-and-resumption)).
 
@@ -264,8 +277,6 @@ A served variant carries `Content-Encoding: br` or `gzip`, and the access event'
 
 ## Related pages
 
-- [Work with the logs](./logs.md) and the [log reference](../reference/logs.md).
-- [Monitor with Prometheus](./metrics.md) and the [metrics reference](../reference/metrics.md).
 - [HTTP responses reference](../reference/http-responses.md): every status statica sends.
-- [CLI reference](../reference/cli.md): exit status and messages.
+- [Log reference](../reference/logs.md): every event and field value.
 - [Startup, readiness and shutdown](../architecture/lifecycle.md).

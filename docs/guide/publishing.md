@@ -76,7 +76,7 @@ Only an allowlist of each object's metadata reaches visitors ([origin metadata](
 
 Set `Content-Type` on every object. A generic type that a tool or provider stores by default, such as `binary/octet-stream`, is a valid media type, so statica sends it as is and the extension table does not apply.
 
-Everything else stays at the origin: user-defined metadata (`x-amz-meta-*`), storage, encryption and version headers, and S3 website redirect metadata (`x-amz-website-redirect-location`), which statica neither forwards nor follows.
+Everything else stays at the origin: user-defined metadata (`x-amz-meta-*`), storage, encryption and version headers, and S3 website redirect metadata (`x-amz-website-redirect-location`), which statica neither forwards nor follows: use [`redirects`](./redirects.md) instead.
 
 For example, with the AWS CLI:
 
@@ -108,16 +108,16 @@ To switch versions at once, publish each version under its own prefix and point 
    RELEASE_ID=2026-11-08 statica config check-origin --config config.yaml
    ```
 
-   It prints `origin object accessible` when the release's `index` object can be read. On AWS without `s3:ListBucket`, a release that was not uploaded is reported as `access denied`, not `object not found`. A `RELEASE_ID` that is not set fails the configuration:
+   It prints `origin object accessible` when the release's `index` object can be read. A release that was not uploaded is reported as `object not found`, or as `access denied` on AWS without `s3:ListBucket`. A `RELEASE_ID` that is not set fails the configuration:
 
    ```text
    statica: s3.prefix (line 5, column 11): missing environment variable RELEASE_ID
    ```
 
-4. Restart statica with the new value, one instance at a time if you run several. A restarted process starts with an empty memory cache and reads only the new prefix ([configuration changes and restarts](../architecture/lifecycle.md#configuration-changes-and-restarts)).
+4. Restart statica with the new value, one instance at a time if you run several. A restarted process starts with an empty memory cache and reads only the new prefix ([configuration changes and restarts](../architecture/memory-cache.md#restarts)).
 5. Keep the previous prefix until you no longer need to roll back to it.
 
-[Deploy, roll out and shut down](./deployment.md#change-the-configuration) shows how to restart instances one at a time under systemd or Kubernetes.
+[Deploy, roll out and shut down](./deployment.md#change-the-configuration) shows how to restart instances one at a time, and [Deploy on Kubernetes](./kubernetes.md#change-the-configuration) how to roll pods.
 
 During a rolling restart, instances on the old and the new prefix serve at the same time, and browsers and CDNs keep pages they already have for as long as their `Cache-Control` allows. If your asset names contain a content hash, a page can ask an instance for an asset that its prefix does not have:
 
@@ -136,7 +136,7 @@ Neither the `startup` event nor `config print` shows the prefix in use: the even
 | A deleted object | When its entry expires and the origin confirms the deletion. |
 | An object that statica does not keep in memory: larger than [`cache.max_object_bytes`](../reference/configuration.md#cache-max-object-bytes), or stored with `no-store`, `private` or malformed cache metadata | At the next `GET`, which reads it from the origin each time. |
 
-There is no purge command. A restart empties the memory cache at once ([memory cache](../architecture/memory-cache.md#what-statica-does-not-do)). To shorten these delays for some paths, see [Choose how long objects stay fresh](./cache-tuning.md#choose-how-long-objects-stay-fresh).
+There is no purge command. A restart empties the memory cache at once ([memory cache](../architecture/memory-cache.md#restarts)). To shorten these delays for some paths, see [Choose how long objects stay fresh](./cache-tuning.md#choose-how-long-objects-stay-fresh).
 
 ## Verify it
 
@@ -191,18 +191,9 @@ level=warn event=http_request ... method=GET status=404 ... bytes_written=10 err
 - **A wrong `Content-Type` is served as stored.** Content is not inspected, and every response carries `X-Content-Type-Options: nosniff`, so a stylesheet stored as `text/plain` or `binary/octet-stream` is not applied by browsers.
 - **Objects stored compressed in place are refused to some clients.** An object stored with `Content-Encoding: gzip` is sent compressed to clients that accept gzip or send no `Accept-Encoding`, and gets 406 Not Acceptable for a client that refuses gzip. Publish compressed copies next to the object instead ([Serve precompressed files](./precompressed-files.md)).
 - **`Expires: 0` and other malformed cache metadata disable caching.** The object is sent with `Cache-Control: no-store` and never stored in memory, and its access events record `cache_diagnostic=malformed_origin_cache_metadata`.
-- **S3 website redirects are not followed.** An object that only carries `x-amz-website-redirect-location` is served as an ordinary object, usually empty. Use [`redirects`](./redirects.md) instead.
-- **Missing pages on AWS without `s3:ListBucket`.** AWS answers 403 instead of 404 for a missing key. The trailing-slash redirect, the custom 404 page and the single-page-app fallback are then skipped, and every missing URL is logged as an origin error ([AWS without `s3:ListBucket`](../architecture/access-denied.md#aws-without-s3-listbucket)).
-- **A page published right after a request for it stays missing briefly.** The negative entry from that request answers 404 until it expires.
 
 ## Related pages
 
 - [Request flow and URL mapping](../architecture/request-flow.md): the exact order in which a path is mapped to object keys.
-- [HTTP responses reference](../reference/http-responses.md): every header statica sends.
-- [Control browser and CDN caching](./browser-caching.md)
-- [Tune the memory cache](./cache-tuning.md): how long changes take to show.
-- [Deploy, roll out and shut down](./deployment.md): restarts and rollouts.
-- [Serve precompressed files](./precompressed-files.md)
-- [Serve a single-page application](./single-page-apps.md)
-- [Configure redirects](./redirects.md)
+- [Control browser and CDN caching](./browser-caching.md): what browsers and CDNs keep of each release.
 - [Troubleshooting](./troubleshooting.md#old-content-after-publishing): old content after publishing, and URLs that answer 404.

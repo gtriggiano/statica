@@ -1,6 +1,6 @@
 # Startup, readiness and shutdown
 
-`statica serve` checks its configuration before anything starts, constructs every component before it binds a listener, and reports readiness only once both listeners are bound. Readiness then follows the process phase and, when you enable it, a background origin health check; liveness stays local to the process. A shutdown runs inside one time budget, `server.shutdown_timeout`, and keeps the admin listener up until the end so that orchestrators can watch the drain. This page describes each phase, the events it logs and the exit status it ends with. [Deploy, roll out and shut down](../guide/deployment.md) applies it to systemd and Kubernetes.
+`statica serve` checks its configuration before anything starts, constructs every component before it binds a listener, and reports readiness only once both listeners are bound. Readiness then follows the process phase and, when you enable it, a background origin health check; liveness stays local to the process. A shutdown runs inside one time budget, `server.shutdown_timeout`, and keeps the admin listener up until the end so that orchestrators can watch the drain. This page describes each phase and the events it logs. [Deploy, roll out and shut down](../guide/deployment.md) applies it to systemd and Kubernetes, and the [CLI reference](../reference/cli.md#exit-status-of-serve) lists the exit statuses.
 
 ## Startup
 
@@ -32,21 +32,7 @@ Every component is constructed before any listener is bound, in this order: logg
 
 Creating an origin client loads the AWS configuration: it sets up the credential chain and, when `s3.region` is not set, finds the region. That step is bounded by `server.response_header_timeout`, the budget that `statica config check-origin` also uses for its origin access. It does not fetch credentials and sends no request to the bucket. Missing or invalid credentials, a wrong bucket name or a missing permission therefore show up only on the first request, in the origin health check when it is enabled, or with `statica config check-origin`. Without `admin.origin_health`, such an instance still becomes ready. The startup fails with `stage=origin_client` only when the AWS configuration cannot be loaded in time, for example because no region can be found or a named profile does not exist.
 
-A construction failure logs `startup_failed` at error level with a `stage` field, releases what was built so far, prints a fixed message on standard error (never a provider error or an endpoint) and exits with status 1. Nothing is ever bound.
-
-| `stage` | What failed |
-| --- | --- |
-| `metrics` | The metrics registry |
-| `origin_client` | Loading the AWS configuration, for example a missing profile, and finding the region |
-| `health_client` | The same, for the dedicated origin health client |
-| `cache` | The memory cache |
-| `content` | Object resolution and responses |
-| `public_handler` | Request admission: host, method, target, CORS and redirect rules |
-| `public_server` | The public server, including loading the TLS certificate and key |
-| `health_worker` | The origin health worker |
-| `admin_server` | The admin server |
-| `bind_public` | Binding `server.listen` |
-| `bind_admin` | Binding `admin.listen` |
+A construction failure logs [`startup_failed`](../reference/logs.md#startup-failed) at error level with a `stage` field that names what failed, releases what was built so far, prints a fixed message on standard error (never a provider error or an endpoint) and exits with status 1. Nothing is ever bound.
 
 ### Binding the listeners
 
@@ -58,17 +44,7 @@ statica: cannot bind the admin listener
 
 ### Readiness and the startup event
 
-Only after both binds does readiness become `serving` and the origin health worker start, so readiness is never claimed on elapsed time. The [`startup`](../reference/logs.md#startup) event follows, at info level. It reports the resolved, non-secret operating mode:
-
-- the build: `version`, `revision` and `go_version`;
-- the addresses actually bound, `public_listen` and `admin_listen`;
-- TLS (`tls=on` or `off`, with `tls_min_version`), host admission (`hosts=any`, or `hosts=allowlist` with `hosts_count`) and the number of `trusted_proxies`;
-- the public server's timeouts and limits;
-- the origin: `s3_endpoint=aws` or `custom`, the resolved `s3_region`, the S3 switches, timeouts and `s3_max_attempts`;
-- the memory cache (`cache=on` or `off`, with its limits and TTLs when on), compression, SPA fallback and origin health modes;
-- the logging settings `access_log`, `log_client_ip` and `log_level`.
-
-The `startup` event never contains the bucket, the prefix, the endpoint address, host names, credentials or key material. When `s3.insecure_skip_verify` is `true`, a second event, `origin_tls_verification_disabled`, follows at warn level.
+Only after both binds does readiness become `serving` and the origin health worker start, so readiness is never claimed on elapsed time. The [`startup`](../reference/logs.md#startup) event follows, at info level. It reports the resolved, non-secret operating mode: the build, the addresses actually bound, and the settings in force. It never contains the bucket, the prefix, the endpoint address, host names, credentials or key material. When `s3.insecure_skip_verify` is `true`, a second event, `origin_tls_verification_disabled`, follows at warn level.
 
 ### A signal during startup
 
@@ -88,15 +64,7 @@ The admin listener answers two probes from in-memory state. Neither probe ever c
 
 `/readyz` answers 200 OK with `ready`, or 503 Service Unavailable with `not ready: <reason>`. The process phase only advances: `initializing`, then `serving` once both listeners are bound, then `draining` once a shutdown starts. Without origin health, `serving` means ready.
 
-When several reasons apply, `/readyz` reports the first one in this table: phase reasons take precedence over origin reasons, and `origin_unhealthy` over `origin_stale`.
-
-| Reason | When |
-| --- | --- |
-| `initializing` | Components are being constructed or the listeners bound |
-| `draining` | A shutdown has started |
-| `origin_unknown` | Origin health is enabled and no check has succeeded yet |
-| `origin_unhealthy` | `admin.origin_health.failure_threshold` consecutive checks failed and the origin has not recovered |
-| `origin_stale` | The last successful check is older than `admin.origin_health.max_staleness` |
+When several reasons apply, phase reasons take precedence over origin reasons, and `origin_unhealthy` over `origin_stale`; the [admin endpoints reference](../reference/admin-endpoints.md#readyz) lists every reason.
 
 The admin listener starts answering only after readiness has become `serving`, so probes never observe `initializing`. The [`statica_ready`](../reference/metrics.md#statica-ready) gauge reports the same decision at scrape time; the reason is never a metric label.
 
@@ -140,16 +108,6 @@ Two events report the worker's view:
 
 A failure that does not change the state, after the first success, logs nothing; it is counted in `statica_origin_health_checks_total` by `result`, next to `statica_origin_health_last_success_timestamp_seconds` ([readiness and origin health metrics](../reference/metrics.md#readiness-and-origin-health)).
 
-#### Timing with the defaults
-
-With the default `interval` of `30s`, `timeout` of `3s`, `failure_threshold` of `3`, `success_threshold` of `1` and `max_staleness` of `90s`:
-
-- **At startup**, the first check runs as soon as both listeners are bound, so a healthy origin makes the instance ready within that check's duration, at most 3 s. If the first check fails, the next one starts 27 to 30 s after it ended.
-- **When the origin breaks** right after a successful check, checks that fail fast reach the third failure between about 81 s and 90 s later (`origin_unhealthy`). Checks that time out take 3 s each, so their third failure completes between about 90 s and 99 s later, but the last success becomes stale at 90 s first (`origin_stale`). Either way, readiness is false at most 90 s after the last success.
-- **When the origin recovers**, the next check succeeds and, with `success_threshold` at `1`, makes the instance ready again: within about 33 s, one interval plus one timeout.
-
-Your orchestrator's probe period adds to these times.
-
 ### Readiness does not gate public requests
 
 The public listener serves every request it receives, whatever readiness says. While the origin is unhealthy, for example, fresh content in the memory cache is still served and requests that need the origin can fail. Readiness is a signal for your orchestrator or load balancer, which decides where to send traffic.
@@ -158,30 +116,11 @@ The public listener serves every request it receives, whatever readiness says. W
 
 ### What starts a shutdown
 
-The first SIGINT or SIGTERM received while serving starts a graceful shutdown, logged as `shutdown_started reason=signal` with the `shutdown_timeout` in force. An unexpected failure of either listener starts one too: `listener_failed` is logged at error level with `listener=public` or `listener=admin`, followed by `shutdown_started reason=listener_failure` (see [listener failures](#listener-failures)).
+The first SIGINT or SIGTERM received while serving starts a graceful shutdown, logged as `shutdown_started reason=signal` with the `shutdown_timeout` in force. An unexpected failure of either listener starts one too: `listener_failed` is logged at error level with `listener=public` or `listener=admin`, followed by `shutdown_started reason=listener_failure` (see [listener failures](#listener-failures)). Every other signal keeps its default effect: SIGHUP ends the process at once, without a drain, the shutdown events or a log flush, and reloads nothing.
 
 ### One budget
 
 The whole shutdown runs inside one budget `B = server.shutdown_timeout`, measured from the moment it starts. A tail `T = min(B/4, 1s)` at the end of the budget is reserved for logging the canceled requests, stopping the admin listener and flushing the logs. With the default budget of `30s`, `T` is 1 s. In the worst case, when every step uses its full allowance, the shutdown unfolds like this:
-
-```mermaid
-gantt
-  accTitle: Shutdown timeline with the default 30 s budget
-  accDescr: With server.shutdown_timeout at 30 s, the tail T is 1 s. At 0 s readiness becomes draining while the admin listener keeps answering probes. The public drain runs until 29 s, when the requests still active are canceled. Canceled requests unwind until 29.5 s, the admin listener shuts down by 29.75 s, and shutdown_complete and the log flush end by 30 s. Each step ends earlier when it has nothing left to wait for.
-  dateFormat x
-  axisFormat %-S s
-  tickInterval 5second
-  todayMarker off
-  section Public
-    Drain active requests, until 29 s : 0, 29000
-    Cancel requests still active, at 29 s : milestone, 29000, 0ms
-    Unwind canceled requests, until 29.5 s : 29000, 29500
-  section Admin
-    Answer probes, readyz reports draining : 0, 29500
-    Shut down, until 29.75 s : 29500, 29750
-  section Logs
-    shutdown_complete and flush, until 30 s : 29750, 30000
-```
 
 | Step | Deadline | Default | What happens |
 | --- | --- | --- | --- |
@@ -213,56 +152,12 @@ The drain deadline applies to every request, whatever its own duration limits: e
 
 ### A second signal
 
-Any SIGINT or SIGTERM received while the shutdown runs forces an immediate close: both listeners and their connections close, every remaining step is canceled, and the log output gets at most 250 ms to flush what fits. `shutdown_complete` reports `outcome=forced forced_by=signal` with `cancelled_requests`, the number of requests still active.
-
-::: warning Events lost to a forced close
-A forced close skips the wait for canceled requests to unwind and gives the log output at most 250 ms. The `http_request` events of the requests it cuts, and any other lines that do not fit in that time, can be missing from the logs.
-:::
+Any SIGINT or SIGTERM received while the shutdown runs forces an immediate close: both listeners and their connections close, every remaining step is canceled, and the log output gets at most 250 ms to flush what fits. `shutdown_complete` reports `outcome=forced forced_by=signal` with `cancelled_requests`, the number of requests still active. The `http_request` events of the requests it cuts, and any other lines that do not fit in that time, can be missing from the logs.
 
 ### Listener failures
 
 When a listener fails unexpectedly while serving, it closes its own connections at once, so requests in progress on a failed public listener are cut, and `shutdown_complete` reports `outcome=forced forced_by=listener_failure` with a best-effort `cancelled_requests`: requests that already ended are not counted. A failed admin listener does not affect public requests, which drain as usual. The shutdown that follows runs through the same steps, and the process exits with status 1. A listener that fails while a shutdown is already running is logged as `listener_failed` too, but the exit status still follows the cause of the shutdown.
 
-### Exit status
-
-| How the process ends | What is logged | Exit status |
-| --- | --- | --- |
-| A signal, and every request finished | `shutdown_complete outcome=drained` | 0 |
-| A signal, and requests were cut by the budget or a second signal | `shutdown_complete outcome=forced` (warn) | 0 |
-| A signal during startup, with no failure | `startup_aborted reason=signal` | 0 |
-| A construction or bind failure, even with a signal pending | `startup_failed stage=…`, with `signal_pending=true` when a signal was pending | 1 |
-| An unexpected listener failure | `listener_failed`, then `shutdown_started reason=listener_failure` and `shutdown_complete` | 1 |
-| An invalid configuration, invalid TLS files or a usage error | Nothing; a message on standard error | 2 |
-
-An exit status of 0 after a forced shutdown is deliberate: the stop was requested, and the warn-level `shutdown_complete` says that it cut requests short.
-
-## Configuration changes and restarts
-
-The configuration file and the TLS certificate and key are read only at startup, before any listener is bound. Nothing is reloaded while the process runs: to apply a configuration change or a renewed certificate, restart the process, one instance at a time if you run several.
-
-The memory cache lives in the process's memory, so a restarted instance starts with an empty cache and reads every object from the origin again until the cache warms up.
-
-::: warning SIGHUP does not reload
-Only SIGINT and SIGTERM are handled. Any other signal that stops the process, such as SIGHUP or SIGKILL, stops it without a drain, without the shutdown events and without flushing the log output. A standard output whose reader has gone away does not stop the process: **statica** keeps serving, and the log lines it cannot write are dropped and counted in [`statica_log_events_dropped_total`](../reference/metrics.md#statica-log-events-dropped-total).
-:::
-
-## What statica does not do
-
-- It does not reload configuration or certificates, on SIGHUP or otherwise.
-- It does not fetch credentials or check the bucket at startup: use the origin health check or `statica config check-origin` for that.
-- It does not hold back public requests while it is not ready.
-- It does not verify the whole site: the origin health check reads the metadata of one object.
-- It does not wait before closing the public listener when a shutdown starts.
-- It does not keep the memory cache across restarts.
-
 ## Related pages
 
-- [Security model](./security.md): the admin listener, trusted proxies and safe logging.
-- [Timeouts and long downloads](./timeouts.md#shutdown-cuts-long-downloads): how the drain deadline interacts with a request's own limits.
-- [Access denied](./access-denied.md#origin-health-check): how a denied origin shows in the origin health check.
-- [Configuration reference](../reference/configuration.md): defaults and limits of [`server.shutdown_timeout`](../reference/configuration.md#server-shutdown-timeout) and [`admin.origin_health`](../reference/configuration.md#admin-origin-health).
-- [CLI reference](../reference/cli.md#statica-serve): `statica serve`, its signals and its exit status.
-- [Deploy, roll out and shut down](../guide/deployment.md) and [Health checks and readiness](../guide/health-checks.md): probes, grace periods and rollouts in practice.
-- [Admin endpoints reference](../reference/admin-endpoints.md): `/livez`, `/readyz` and `/metrics`.
-- [Log reference](../reference/logs.md#events): the fields of every lifecycle event.
-- [Metrics reference](../reference/metrics.md#readiness-and-origin-health): the readiness and origin health series.
+- [Configuration reference](../reference/configuration.md#server-shutdown-timeout): `server.shutdown_timeout` and [`admin.origin_health`](../reference/configuration.md#admin-origin-health).

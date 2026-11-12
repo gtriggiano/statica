@@ -81,7 +81,7 @@ When `s3.features.range_reads` and `s3.features.conditional_reads` are both enab
 3. an unsatisfiable range that applies gets its 416, without a body read from the origin;
 4. a satisfiable range that applies comes from a complete memory snapshot or from the origin, as the next sections describe.
 
-S3 answers a `HeadObject` for a missing key with a 404 that cannot confirm the absence, so each missing candidate (the exact key, the index key, a precompressed sibling or the SPA shell) costs a `HeadObject` and then a `GetObject` that confirms it, as for a HEAD request. With the memory cache, that confirmation stores a negative entry that later requests reuse ([negative entries](./memory-cache.md#negative-entries)). The custom 404 page never answers a range, so statica reads it with a GET directly.
+Each missing candidate (the exact key, the index key, a precompressed sibling or the SPA shell) costs a `HeadObject` and then the `GetObject` that confirms its absence, as for a HEAD request ([HEAD requests](./memory-cache.md#head-requests)). The custom 404 page never answers a range, so statica reads it with a GET directly.
 
 ### From a complete memory snapshot
 
@@ -135,25 +135,13 @@ With either feature disabled, a range request returns 206 when the object is in 
 
 ## Edge cases
 
-- **Weak or missing ETags.** If the origin's ETag for an object is weak or missing, statica serves no range for it, from memory or from the origin, and `If-Match` with an ETag list always fails.
+- **Weak or missing ETags.** statica generates no ETag of its own. If the origin's ETag for an object is weak or missing, it serves no range for it, from memory or from the origin, and `If-Match` with an ETag list always fails.
 - **Precompressed variants.** Ranges and `Content-Range` count the encoded bytes of the selected variant. See [Precompressed variants](./precompressed-variants.md).
 - **SPA shell and index objects.** They are 200 responses, so preconditions and ranges apply to them. See [SPA fallback](./spa-fallback.md).
 - **A request with `Cache-Control: no-store`** bypasses the memory cache, so its range can only come from the origin.
-
-## What statica does not do
-
-- It does not serve several ranges in one response (`multipart/byteranges`).
-- It does not apply `Range` to HEAD requests.
-- It does not forward a client's conditional headers to the origin.
-- It does not buffer a large object to serve a range from it.
-- It does not resume or retry an interrupted download: resuming with `Range` and `If-Range` is a client capability. See [Timeouts and long downloads](./timeouts.md#long-downloads-and-resumption).
-- It does not generate ETags.
+- **HEAD requests.** `Range` is ignored on HEAD.
+- **Interrupted downloads.** statica neither resumes nor retries them: a client resumes with `Range` and `If-Range` ([Long downloads and resumption](./timeouts.md#long-downloads-and-resumption)).
 
 ## Related pages
 
-- [Memory cache](./memory-cache.md): when a body is held in memory, and how entries are revalidated.
-- [Precompressed variants](./precompressed-variants.md)
-- [Timeouts and long downloads](./timeouts.md)
-- [SPA fallback](./spa-fallback.md)
-- [HTTP responses reference](../reference/http-responses.md): the statuses and headers of 206, 304, 412 and 416 responses, and `Accept-Ranges`.
 - [Configuration reference](../reference/configuration.md#s3-features): the `s3.features` keys.

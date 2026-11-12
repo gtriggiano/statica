@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs'
 import { defineConfig, type HeadConfig } from 'vitepress'
+import { llmsHead, writeAgentSkills, writeLlmsFiles } from './llms'
 import { mermaidFence } from './mermaid-fence'
 import { nav, sidebar } from './navigation'
-import { setBlockVersions } from './version-blocks'
+import { setReleaseVersion } from './release-version'
 
 const repository = 'https://github.com/gtriggiano/statica'
 
@@ -13,7 +14,7 @@ const base = process.env.DOCS_BASE ?? '/statica/'
 // /statica/next/ (see docs/scripts/assemble-site.mjs).
 const siteRoot = process.env.DOCS_SITE_ROOT ?? base
 // The statica release this build documents, set by the workflows from the tag;
-// empty for local and pull request builds.
+// empty for local and pull request builds, which document the last release.
 const version = process.env.DOCS_VERSION ?? ''
 
 for (const [name, value] of [['DOCS_BASE', base], ['DOCS_SITE_ROOT', siteRoot]]) {
@@ -23,15 +24,16 @@ if (!base.startsWith(siteRoot)) throw new Error('DOCS_BASE must be DOCS_SITE_ROO
 if (version && !/^\d+\.\d+\.\d+(-rc\.\d+)?$/.test(version)) {
   throw new Error(`DOCS_VERSION must be X.Y.Z or X.Y.Z-rc.N (got ${version})`)
 }
-// The commit of a release documents that release: its version blocks, and the
-// manifest, already name it. A release candidate is built from main, whose
-// blocks name the last release; setBlockVersions shows the candidate instead.
+// The commit of a release documents that release, and the manifest names it. A
+// release candidate is built from main, whose manifest names the last release:
+// its pages show the candidate instead.
 const manifest = JSON.parse(readFileSync(new URL('../../.release-please-manifest.json', import.meta.url), 'utf8'))
 if (version && !version.includes('-') && version !== manifest['.']) {
   throw new Error(
     `DOCS_VERSION is ${version}, but this commit documents ${manifest['.']} (.release-please-manifest.json): build the documentation of ${version} from its tag`,
   )
 }
+const releaseVersion: string = version || manifest['.']
 // Search engines index only the site root, and old pages are not edited.
 const archived = base !== siteRoot
 
@@ -73,15 +75,20 @@ export default defineConfig({
       ? [["meta", { name: "robots", content: "noindex" }] as HeadConfig]
       : []),
   ],
+  // For AI agents (llms.ts): llms.txt and a Markdown twin of every page, and at
+  // the site root the skills for users of statica.
+  transformHead: llmsHead,
+  buildEnd: (siteConfig) => {
+    writeLlmsFiles(siteConfig, releaseVersion, siteRoot)
+    if (!archived) writeAgentSkills(siteConfig)
+  },
   markdown: {
     config: (md) => {
       mermaidFence(md);
-      if (version) {
-        // The source reaches the parser with its includes already expanded.
-        const parse = md.parse.bind(md);
-        md.parse = (source, env) =>
-          parse(setBlockVersions(source, version), env);
-      }
+      // The source reaches the parser with its includes already expanded.
+      const parse = md.parse.bind(md);
+      md.parse = (source, env) =>
+        parse(setReleaseVersion(source, releaseVersion), env);
     },
   },
   vite: {

@@ -49,13 +49,13 @@ When several reasons apply, `/readyz` reports the first one of this table:
 
 | Reason | When |
 | --- | --- |
-| `initializing` | Components are being built or the listeners bound. |
+| `initializing` | Components are being built or the listeners bound. Never returned: the admin listener starts answering after this phase. |
 | `draining` | A shutdown has started. |
 | `origin_unknown` | The origin health check is enabled and no check has succeeded yet. |
 | `origin_unhealthy` | `admin.origin_health.failure_threshold` consecutive checks failed, and `success_threshold` consecutive successes have not followed yet. |
 | `origin_stale` | The last successful check is older than `admin.origin_health.max_staleness`. |
 
-Without [`admin.origin_health`](./configuration.md#admin-origin-health) enabled, only `initializing` and `draining` apply. The decision is made when `/readyz` is requested, so a check that stopped running cannot keep the instance ready. [`statica_ready`](./metrics.md#statica-ready) reports the same decision at scrape time. [Startup, readiness and shutdown](../architecture/lifecycle.md#readiness-and-liveness) explains the states and their timing.
+Without [`admin.origin_health`](./configuration.md#admin-origin-health) enabled, only `draining` can be returned. The decision is made when `/readyz` is requested, so a check that stopped running cannot keep the instance ready. [`statica_ready`](./metrics.md#statica-ready) reports the same decision at scrape time. [Startup, readiness and shutdown](../architecture/lifecycle.md#readiness-and-liveness) explains the states and their timing.
 
 ## `/metrics`
 
@@ -93,5 +93,5 @@ The admin listener has its own limits, independent of the public listener's and 
 
 ## During startup and shutdown
 
-- **Startup.** statica binds the public listener, then the admin listener, and starts answering admin requests only once readiness has become serving. Probes therefore do not normally see `initializing`. With the origin health check enabled, `/readyz` reports `origin_unknown` until the first check succeeds.
+- **Startup.** statica binds the public listener, then the admin listener, and starts answering admin requests only once readiness has become serving. Probes therefore never see `initializing`. With the origin health check enabled, `/readyz` reports `origin_unknown` until the first check succeeds.
 - **Shutdown.** When a shutdown starts, `/readyz` answers 503 with `not ready: draining` while `/livez` still answers 200 and `/metrics` keeps working. The admin listener stays up while public requests drain and stops at the end of the shutdown, after them, so orchestrators can watch the drain. A second signal closes it at once. See [Shutdown](../architecture/lifecycle.md#shutdown).

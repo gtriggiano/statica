@@ -18,7 +18,7 @@ An entry holds what the origin returned, the body bytes and the object's metadat
 - **Metadata** entries hold the result of a metadata read from the origin, made for a `HEAD` request or a range request. They answer `HEAD` requests and give range requests the metadata they are decided on, but never a body: a `GET` that needs the body reads it, and the body entry it stores replaces the metadata entry.
 - **Negative** entries record that the origin confirmed the key missing. While they are fresh, they answer `GET` and `HEAD` requests for the key as missing without an origin read.
 
-All three kinds count toward the same limits.
+All three kinds count toward the same limits. Nothing else is stored: no partial content, no error answer and no 403 answer.
 
 ## Life of an entry
 
@@ -294,7 +294,7 @@ A request waiting for a shared fill gives up at its own deadline, `server.respon
 
 ## HEAD requests
 
-A `HEAD` is answered from memory, as `cache=metadata_hit`, when a fresh body or metadata entry exists, and as missing when a fresh negative entry exists. `HEAD` requests never count as `hit`, so they do not inflate the body hit ratio. A range request reads its metadata the same way (see [Ranges](#ranges)).
+A `HEAD` is answered from memory, as `cache=metadata_hit`, when a fresh body or metadata entry exists, and as missing when a fresh negative entry exists. `HEAD` requests never count as `hit`, so they do not inflate the body hit ratio. A range request reads its metadata the same way ([Ranges](#ranges)).
 
 Otherwise the `HEAD` sends its own `HeadObject` to the origin, within its own deadlines and outside any shared fill, and stores the answer as a metadata entry. A `HEAD` reads no body itself:
 
@@ -305,14 +305,7 @@ Otherwise the `HEAD` sends its own `HeadObject` to the origin, within its own de
 
 ## Ranges
 
-A single range is cut from a complete body in memory, a fresh entry or a body that the request's shared fill read a moment before, whatever [`s3.features.range_reads`](../reference/configuration.md#s3-features-range-reads) and `s3.features.conditional_reads` say, provided the object has a strong `ETag`. Partial content never becomes an entry.
-
-With both provider features enabled, a range request is decided on metadata first, read like a `HEAD`: from a fresh body or metadata entry, as `cache=metadata_hit`, or with a `HeadObject` whose answer is stored as a metadata entry. Then:
-
-- For an object up to `max_object_bytes` whose metadata read did not bypass the cache, statica reads the body with an ordinary `GET` through the cache: a fresh body entry, or a shared fill that reads the whole object, and the range is cut from that body. The access log records the outcome of that `GET`, such as `hit` or `miss`.
-- For a larger object, or one whose metadata read bypassed the cache, for example for a disabled rule, a request whose `no-store` applies or an origin `no-store` or `private` policy, the range is read from the origin with a request guarded by `If-Match`. While the metadata entry of a larger object is fresh, each such range costs that one origin read, and the access log records `cache=metadata_hit`.
-
-With either feature disabled, a range request reads the object like any `GET`, and a range is served only from a body in memory. [Ranges and conditional requests](./ranges-and-conditionals.md#where-a-range-comes-from) describes when each path applies, the 304, 412 and 416 answers decided on metadata alone, and how `Accept-Ranges` is chosen.
+Partial content never becomes an entry: a range is cut from a complete body in memory, or read from the origin. A range request reads its metadata as a `HEAD` does, from a fresh body or metadata entry, as `cache=metadata_hit`, or with a `HeadObject` whose answer is stored as a metadata entry. [Where a range comes from](./ranges-and-conditionals.md#where-a-range-comes-from) describes when the body is then read through the cache and when the range is read from the origin.
 
 ## Bypasses and outcomes
 
@@ -328,23 +321,6 @@ The other outcomes are `hit` (a fresh body served from memory), `metadata_hit`, 
 
 ## Restarts
 
-The memory cache lives only in the process's memory. A restart, which is also how configuration changes are applied, starts with an empty cache, and the first request for each object reads the origin again. During a shutdown, unfinished shared fills are canceled only after the public listener has canceled the requests still running, so a draining request is not failed by a canceled fill. [Startup, readiness and shutdown](./lifecycle.md) describes the shutdown sequence.
+The memory cache lives only in the process's memory: it is not written to disk, and it is not shared between instances, each of which reads the origin on its own. It has no purge or invalidation API, and nothing is fetched before a request asks for it: a change in the bucket becomes visible when the entry expires and is revalidated or, for an object that was missing, when its negative entry expires.
 
-## What statica does not do
-
-- It does not write the cache to disk or load one at startup.
-- It has no purge or invalidation API. A change in the bucket becomes visible when the entry expires and is revalidated or, for an object that was missing, when its negative entry expires. Browsers and CDNs may keep their own copies longer, as `Cache-Control` allows them.
-- It does not share entries or fills between instances: each instance has its own cache and reads the origin on its own.
-- It does not store partial content, error answers, 403 answers or responses whose metadata forbids storing.
-- It does not serve stale content on request (`max-stale`) or revalidate entries in the background (`stale-while-revalidate`).
-- It does not fetch objects before a request asks for them.
-
-## Related pages
-
-- [Architecture overview](./index.md)
-- [Request flow and URL mapping](./request-flow.md)
-- [Cache-Control and Age](./cache-control.md)
-- [Tune the memory cache](../guide/cache-tuning.md): sizing, freshness and stale-if-error in practice.
-- [Metrics reference](../reference/metrics.md#memory-cache-per-request): the `statica_cache_*` families.
-- [Log reference](../reference/logs.md#cache): the `cache` and `cache_reason` fields.
-- [Configuration reference](../reference/configuration.md#cache): the `cache` keys.
+A restart, which is also how configuration changes are applied, starts with an empty cache, and the first request for each object reads the origin again. During a shutdown, unfinished shared fills are canceled only after the public listener has canceled the requests still running, so a draining request is not failed by a canceled fill ([Shutdown](./lifecycle.md#shutdown)).

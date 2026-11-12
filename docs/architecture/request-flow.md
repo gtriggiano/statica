@@ -1,3 +1,7 @@
+---
+description: "How a request travels from the public listener to its response: the checks that can reject it, the redirect rules and the mapping of the path to object keys."
+---
+
 # Request flow and URL mapping
 
 This page follows a request from the public listener to its response: the checks that can reject it, the redirect rules, and the order in which **statica** maps its path to object keys and falls back when an object is missing. Every step before resolution is local: a request that is rejected or redirected there never reaches the memory cache or the origin. The [HTTP responses reference](../reference/http-responses.md) lists every status and header that results.
@@ -24,7 +28,9 @@ Before these steps, the client IP and the request ID of every request are determ
 
 ### Request capacity
 
-The first step takes one of [`server.max_concurrent_requests`](../reference/configuration.md#server-max-concurrent-requests) request slots, before any other check. When every slot is in use, the request gets 503 Service Unavailable at once: there is no queue of waiting requests. A request holds its slot until its response ends, streaming included. Open connections are bounded separately by [`server.max_connections`](../reference/configuration.md#server-max-connections).
+The first step takes one of [`server.max_concurrent_requests`](../reference/configuration.md#server-max-concurrent-requests) request slots, before any other check. When every slot is in use, the request gets 503 Service Unavailable at once: there is no queue of waiting requests. The rejection is logged at `warn` with `error_class=request_capacity` and counted in `statica_http_rejected_requests_total{reason="request_capacity"}`. A request holds its slot until its response ends, streaming included.
+
+Open connections are bounded separately by [`server.max_connections`](../reference/configuration.md#server-max-connections), TLS handshakes and idle keep-alive connections included. At the cap, statica stops accepting: new connections wait in the operating system's listen backlog, whose size and overflow behavior the operating system controls, and are accepted as other connections close.
 
 ### Host admission
 
@@ -140,7 +146,7 @@ Error responses are generated responses with `Cache-Control: no-store`. An objec
 
 A fallback after a failure would hide the failure: a denied or unreachable object would turn into a single-page-app shell with 200, or into a custom 404 page, and nothing in the response would show that the origin had failed. For the same reason, a failure while reading a fallback object, such as the `not_found` object, is an error response and not a missing page. When [`cache.stale_if_error`](../reference/configuration.md#cache-stale-if-error) allows it, the memory cache can answer a failed read with an expired copy; the read then counts as found. [Memory cache](./memory-cache.md#stale-if-error) describes when.
 
-S3 answers a missing object to a `HeadObject` with a 404 that carries no error code, so a `HEAD` request cannot confirm an absence by itself. The same key is then read with `GetObject`, through the memory cache, before the object counts as missing: a `HEAD` answered that way reads the key twice. [Memory cache](./memory-cache.md#head-requests) describes what that `GetObject` stores.
+A `HEAD` request cannot confirm an absence by itself: the same key is then read with `GetObject` before the object counts as missing, so a `HEAD` answered that way reads the key twice ([HEAD requests](./memory-cache.md#head-requests)).
 
 ::: warning
 Every candidate key must fit in 1024 bytes when it is built. When the exact key is confirmed missing but `<path>/<index>` would be longer than 1024 bytes, the request gets 414 URI Too Long instead of 404 Not Found. With [`compression.mode`](../reference/configuration.md#compression-mode) set to `precompressed`, a variant key longer than 1024 bytes has the same effect.
@@ -154,21 +160,6 @@ A request reads at most four candidates: the exact key, the index object, the si
 
 The query string is validated, matched and expanded by redirect rules, and kept on the 308 to the trailing-slash path. It is never part of an object key or of a memory cache entry, and it is never sent to S3, so parameters such as `versionId` or `response-content-type` have no effect. No visitor header reaches S3 either: a request to the origin names the bucket and the object key, plus a condition or a byte range that statica computes itself.
 
-## What statica does not do
-
-- It does not list the bucket: a directory path is served only through its index object.
-- It does not clean or normalize paths: it rejects `..`, `//` and encoded separators instead.
-- It does not select a site, a bucket or a prefix by hostname.
-- It does not let the query select an object, an object version or response headers.
-- It does not apply S3 static website hosting features such as routing rules or per-object website redirects.
-
 ## Related pages
 
-- [Architecture overview](./index.md)
-- [Memory cache](./memory-cache.md)
-- [Cache-Control and Age](./cache-control.md)
-- [Publish a site to S3](../guide/publishing.md), [Configure redirects](../guide/redirects.md) and [Response headers and CORS](../guide/headers-and-cors.md): the settings behind each step.
-- [Connect to S3 and S3-compatible providers](../guide/s3-providers.md#common-failures) and [Troubleshooting](../guide/troubleshooting.md): what origin failures look like, and how to find their cause.
-- [HTTP responses reference](../reference/http-responses.md): every status and header.
-- [Log reference](../reference/logs.md#resolution): the `resolution` field.
-- [Configuration reference](../reference/configuration.md)
+- [Troubleshooting](../guide/troubleshooting.md): from an error status to its cause.

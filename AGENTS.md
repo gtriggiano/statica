@@ -36,6 +36,7 @@ export GOMODCACHE="$PWD/.cache/go-mod" GOCACHE="$PWD/.cache/go-build" npm_config
 | A configuration field, a metric, `docs/examples/`, a `yaml [config.yaml]` snippet or a version reference | `make check`, then `make docs-build` and `make docs-check` |
 | Other documentation | `make docs-build`, then `make docs-check` |
 | `AGENTS.md`, `CLAUDE.md`, `.agents/` or `.claude/` | `make check` |
+| `skills/` (the skill for users) | `make check`, then `make docs-build` |
 | `.github/workflows/` or `.github/dependabot.yml` | `make workflows-check`, and `make workflows-audit` when `uvx` is installed |
 | `.goreleaser.yaml` or `Dockerfile` | `make release-check`, and `make release-snapshot` when Docker is available |
 
@@ -61,13 +62,14 @@ internal/admin/         Admin listener (/livez, /readyz, /metrics) and the origi
 internal/release/       Tests only: version references in the docs
 internal/agentdocs/     Tests only: consistency of this file, CLAUDE.md and the skills
 docs/                   Site: guide/ (how-to), architecture/ (mechanisms), reference/ (every field, metric, event)
+skills/                 The skill for users who deploy statica, published by the site; not instructions for you
 ```
 
-Read `docs/architecture/index.md` before a change that crosses packages: it explains the request path and the role of each component.
+Read `docs/architecture/index.md` before a change that crosses packages: it explains the request path and the role of each component. [CONTRIBUTING.md § Code map](CONTRIBUTING.md#code-map) names the documentation page that explains each package.
 
 ## Design rules
 
-These hold across the code base. Do not weaken one without the maintainer's agreement.
+These hold across the code base, and are the same as in [CONTRIBUTING.md § Design rules](CONTRIBUTING.md#design-rules). Do not weaken one without the maintainer's agreement.
 
 - **The origin is read-only.** statica sends only `GetObject` and `HeadObject`. It never lists, writes or deletes objects.
 - **Keys stay inside the publication prefix.** `internal/site` validates paths and confines keys. It does no filesystem cleaning and no URL re-decoding.
@@ -94,7 +96,7 @@ Every behavior change updates the documentation in the same pull request. The ru
 - Write each paragraph and each list item on one line, in US English, second person and present tense. statica is always lowercase, in bold at its first mention in the prose of each page. No "simply", "just" or "easy", no superlatives, no performance claims.
 - Keep each fact in its home (values in `docs/reference/`, mechanisms in `docs/architecture/`, tasks in `docs/guide/`) and link to it.
 - Every `.md` file under `docs/` becomes a published page: put nothing else there, agent instructions included.
-- Go tests in `make check` read the configuration and metrics references, the `yaml [config.yaml]` snippets, the release version blocks and `docs/examples/`, and fail on any drift from the code.
+- Go tests in `make check` read the configuration and metrics references, the `yaml [config.yaml]` snippets, the version references and `docs/examples/`, and fail when they differ from the code. Prose and free-text constraints are not checked: verify them against the code yourself.
 
 ## Pull requests
 
@@ -138,3 +140,5 @@ Skills are step-by-step procedures for recurring tasks, in the [Agent Skills](ht
 | `prepare-pr` | Verify a change and write its pull request title and description. |
 
 To change or add a skill, follow [CONTRIBUTING.md § AI coding agents](CONTRIBUTING.md#ai-coding-agents).
+
+The directory `skills/` is not for you: it holds `deploy-statica`, the skill that the documentation site publishes for users who deploy statica. Update it in the change that alters how statica is configured, deployed or verified.

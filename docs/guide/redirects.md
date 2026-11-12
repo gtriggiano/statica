@@ -57,7 +57,7 @@ redirects:
     status: 301
 ```
 
-- Each listed field must appear in the request, once: a repeated field is an error (see [Pitfalls](#pitfalls)). Other fields are allowed: `/search?q=red+shoes&page=2` matches the first rule.
+- Each listed field must appear in the request, once. When the path matches and a listed field is repeated, as in `/search?q=a&q=b`, the request gets 400 Bad Request, even if a later rule could match. Other fields are allowed: `/search?q=red+shoes&page=2` matches the first rule.
 - A value in `from` is literal, such as `?lang=en`, or a placeholder.
 - A query value can fill a path segment of `to`, as `{id}` does above, only when it is a valid segment. A value that contains `/` or `\`, that is `.` or `..`, or that still contains a `%XX` sequence after decoding, as in `/p?id=a%2Fb` or `/p?id=%2541`, cannot, and the request gets 400 Bad Request.
 
@@ -181,7 +181,6 @@ A request whose values cannot be used gets 400 Bad Request, or 414 URI Too Long,
 ## Pitfalls
 
 - **Hidden paths cannot be redirected.** A path with a segment that starts with a dot, other than a first `.well-known`, gets 404 Not Found before the rules run, so `config validate` rejects a `from` such as `/.old/page`.
-- **A repeated query field is an error, not a mismatch.** When the path matches and a field listed in `from` appears more than once, as in `/search?q=a&q=b`, the request gets 400 Bad Request, even if a later rule could match.
 - **Rules hide objects.** A rule answers before any lookup, so an object at its `from` path is never served.
 - **Size limits.** Each template is at most 8 KiB. A request whose `Location` would exceed 8 KiB gets 414 URI Too Long, and a placeholder value longer than 256 bytes does not match.
 - **The trailing-slash redirect is separate.** statica's own 308 from `/guide` to `/guide/` happens during resolution, after the rules, and only when `guide/index.html` exists ([Publish a site to S3](./publishing.md)).

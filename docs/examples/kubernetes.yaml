@@ -1,0 +1,28 @@
+# One site served by pods behind an ingress controller. Set your hostnames,
+# bucket and region. Credentials come from the pod's ServiceAccount or from a
+# Secret, never from this file.
+# Other hostnames get 421 Misdirected Request, and the host label of the
+# metrics stays bounded.
+hosts: [www.example.com]
+server:
+  # Every interface of the pod: the default 127.0.0.1 cannot be reached by the
+  # Service.
+  listen: ":8080"
+  # The cluster's pod network, from which the ingress controller connects. Trust
+  # it only when a NetworkPolicy lets nothing but the ingress controller reach
+  # port 8080; otherwise remove the line.
+  trusted_proxies: [10.244.0.0/16]
+  # The pod's terminationGracePeriodSeconds must exceed this plus the preStop
+  # delay.
+  shutdown_timeout: 30s
+admin:
+  # Probes and Prometheus reach the pod's address. No authentication: keep this
+  # port out of the Service and the ingress.
+  listen: ":9090"
+s3:
+  bucket: example-websites
+  region: eu-west-1
+cache:
+  # The defaults, written out because the container's memory limit follows them.
+  max_bytes: 128MiB
+  max_fill_bytes: 32MiB

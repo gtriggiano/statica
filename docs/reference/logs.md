@@ -85,8 +85,22 @@ Level `error`. A component could not be built, or a listener could not be bound.
 
 | Field | Value |
 | --- | --- |
-| `stage` | What failed: `metrics`, `origin_client`, `health_client`, `cache`, `content`, `public_handler`, `public_server`, `health_worker`, `admin_server`, `bind_public` or `bind_admin`. |
+| `stage` | What failed, one of the values below. |
 | `signal_pending` | `true` when a shutdown signal also arrived. Absent otherwise. |
+
+| `stage` | What failed |
+| --- | --- |
+| `metrics` | The metrics registry. |
+| `origin_client` | Loading the AWS configuration, for example a missing profile, and finding the region. |
+| `health_client` | The same, for the dedicated origin health client. |
+| `cache` | The memory cache. |
+| `content` | Object resolution and responses. |
+| `public_handler` | Request admission: host, method, target, CORS and redirect rules. |
+| `public_server` | The public server, including loading the TLS certificate and key. |
+| `health_worker` | The origin health worker. |
+| `admin_server` | The admin server. |
+| `bind_public` | Binding `server.listen`. |
+| `bind_admin` | Binding `admin.listen`. |
 
 ```text
 ts=2026-11-07T23:48:31.335Z level=error event=startup_failed stage=bind_admin

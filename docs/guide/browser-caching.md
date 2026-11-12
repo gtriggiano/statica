@@ -143,12 +143,9 @@ curl -s -o /dev/null -w '%{http_code}\n' \
 - **Some responses are always `no-store`.** Redirects, 404 responses (the custom 404 page included), the single-page-app shell served for a route, 412 Precondition Failed and every error response carry `Cache-Control: no-store`, whatever `cache_control` says.
 - **The two kinds of rules see different paths.** `cache_control.rules` match `/guide/` and `/app.js`, `cache.rules` match `/guide/index.html` and `/app.js.br`. An `exact` or `regex` rule written for one kind can miss in the other ([which path a rule matches](../architecture/cache-control.md#which-path-a-rule-matches)).
 - **There is no purge.** Copies in browsers or CDNs cannot be removed: a long `max-age` on a URL whose content changes keeps the old content in their caches until it expires.
-- **Changes need a restart.** `cache_control` is read at startup, and copies that clients already hold keep the policy they were sent with.
 
 ## Related pages
 
 - [Cache-Control and Age](../architecture/cache-control.md): precedence, rule matching and `Age` in detail.
-- [Memory cache](../architecture/memory-cache.md#freshness): how long statica keeps objects.
-- [`cache_control` configuration reference](../reference/configuration.md#cache-control)
 - [Tune the memory cache](./cache-tuning.md): how long statica itself keeps objects.
-- [Publish a site to S3](./publishing.md)
+- [Publish a site to S3](./publishing.md): the cache metadata of the objects you upload.

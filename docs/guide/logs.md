@@ -114,7 +114,7 @@ ts=2026-11-08T00:17:50.240Z level=error event=http_request request_id=6a5b4c3d2e
 | `cache` | can be `negative_hit` | never `negative_hit` |
 | `Vary: Accept-Encoding` in the response | present | absent |
 
-A burst of masked denials usually means wrong credentials, a bucket policy that denies reads, or, on AWS S3, a missing `s3:ListBucket` permission, which turns every missing object into a 403 ([access denied](../architecture/access-denied.md#aws-without-s3-listbucket)).
+A burst of masked denials usually means wrong credentials, a bucket policy that denies reads, or, on AWS S3, a missing `s3:ListBucket` permission ([the `s3:ListBucket` trade-off](./s3-providers.md#the-s3-listbucket-trade-off)).
 
 ## Watch the lifecycle events
 
@@ -172,11 +172,10 @@ journalctl -u statica -o cat | grep 'event=http_request' | grep ' outcome=origin
 
 - **`status` alone hides failures.** A masked denial is a 404, and a cut download is a 200. Watch `outcome`, `error_class` and `termination_reason`.
 - **No access events for some requests.** Requests that Go's HTTP server refuses before statica sees them, such as headers larger than `server.max_header_bytes`, and requests to the admin listener, are not logged ([statuses from Go's HTTP server](../reference/http-responses.md#statuses-from-go-s-http-server)).
-- **The log reader must stay up.** When standard output is a pipe or socket whose reader goes away, statica keeps serving, and every later log line is dropped and counted in `statica_log_events_dropped_total` ([signals](./deployment.md#signals)).
+- **The log reader must stay up.** When standard output is a pipe or socket whose reader goes away, statica keeps serving, and every later log line is dropped and counted in `statica_log_events_dropped_total`.
 
 ## Related pages
 
-- [Log reference](../reference/logs.md): every event, field and value.
-- [Safe logging](../architecture/security.md#safe-logging).
-- [Monitor with Prometheus](./metrics.md).
-- [Troubleshooting](./troubleshooting.md).
+- [Safe logging](../architecture/security.md#safe-logging): what never reaches the logs.
+- [Monitor with Prometheus](./metrics.md): the same requests as metrics.
+- [Troubleshooting](./troubleshooting.md): from a symptom to its cause.

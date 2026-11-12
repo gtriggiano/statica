@@ -125,7 +125,5 @@ On the admin listener, [`statica_origin_operations_total`](../reference/metrics.
 ## Related pages
 
 - [Precompressed variants](../architecture/precompressed-variants.md): negotiation, sibling metadata and lookup costs in detail.
-- [Publish a site to S3](./publishing.md)
 - [Tune the memory cache](./cache-tuning.md): budget and rules that account for the variants.
 - [Troubleshooting](./troubleshooting.md#precompressed-variants-are-not-served): variants that are not served.
-- [`compression` configuration reference](../reference/configuration.md#compression)

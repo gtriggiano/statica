@@ -110,19 +110,8 @@ After a successful revalidation, `Date` and `Age` come from the origin's 304 ans
 - `cache.negative_ttl` is never advertised: 404 responses are always `no-store`.
 - In `auto` mode, a `Cache-Control` the origin sent is never rewritten, to shorten or to lengthen it.
 - No `Expires` header is ever computed: only the origin's is forwarded.
-
-## What statica does not do
-
-- It does not vary `Cache-Control` by client, hostname or query.
-- It does not purge or notify CDNs and other downstream caches.
-- It does not let `headers.set` override the freshness headers.
+- The policy never varies by client, hostname or query, and downstream caches are never purged or notified.
 
 ## Related pages
 
-- [Memory cache](./memory-cache.md)
-- [Request flow and URL mapping](./request-flow.md)
-- [Architecture overview](./index.md)
-- [Control browser and CDN caching](../guide/browser-caching.md): common policies, per path or per object.
 - [HTTP responses reference](../reference/http-responses.md#cache-control): the `Cache-Control`, `Expires`, `Age` and `Date` of each response.
-- [Log reference](../reference/logs.md#cache-diagnostic): the `cache_diagnostic` field.
-- [Configuration reference](../reference/configuration.md#cache-control): the `cache_control` keys.

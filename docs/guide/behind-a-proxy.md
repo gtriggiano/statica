@@ -133,14 +133,10 @@ The `startup` event reports how many ranges you trust (`trusted_proxies=1`) and 
 
 - **The proxy's health checks hit the public listener.** They are logged and counted like visitors' requests, and get 421 when their `Host` is not in `hosts`. When the proxy can reach the admin listener, point its checks at `/readyz` instead ([Health checks and readiness](./health-checks.md)).
 - **Unknown hosts take a request slot.** Capacity is checked before the host, so a flood of misdirected requests can still fill `server.max_concurrent_requests`.
-- **`Forwarded` is not supported.** statica reads neither the RFC 7239 `Forwarded` header nor `X-Forwarded-Host` and `X-Forwarded-Proto`.
 - **The client IP is attribution only.** statica makes no access decision from it. Set [`observability.log_client_ip`](../reference/configuration.md#observability-log-client-ip) to `false` to keep addresses out of the logs.
 
 ## Related pages
 
-- [Security model](../architecture/security.md): trust boundaries, client IP attribution and request IDs.
-- [Timeouts and long downloads](../architecture/timeouts.md).
-- [Serve HTTPS directly](./tls.md).
-- [Deploy, roll out and shut down](./deployment.md).
-- [Work with the logs](./logs.md).
+- [Timeouts and long downloads](../architecture/timeouts.md): how statica's time limits combine with the proxy's.
+- [Serve HTTPS directly](./tls.md): TLS between the proxy and statica.
 - [Troubleshooting](./troubleshooting.md#_421-misdirected-request): 421 responses, and [504 responses](./troubleshooting.md#_504-gateway-timeout) for clients that leave.

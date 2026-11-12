@@ -40,8 +40,6 @@ statica config validate --config /etc/statica/config.yaml
 configuration valid
 ```
 
-Without `s3.region`, a second line follows, `S3 region deferred to AWS discovery at startup`: it concerns the origin, not TLS.
-
 `config validate` loads the certificate chain and the key, checks that the key matches the first certificate of the chain and that every certificate parses. `statica serve` runs the same checks before it starts. A missing file or a key that does not match fails with exit status 2:
 
 ```text
@@ -68,16 +66,16 @@ ts=2026-11-08T00:15:41.269Z level=info event=startup ... public_listen=[::]:8443
 
 statica binds exactly `server.listen`. On most systems, an unprivileged process cannot bind a port below 1024. Rather than running statica as root:
 
-- grant the process the capability to bind low ports, for example on Linux `CAP_NET_BIND_SERVICE` through your service manager (the [systemd example](./deployment.md#run-it-under-a-supervisor) shows the setting); or
+- grant the process the capability to bind low ports, for example on Linux `CAP_NET_BIND_SERVICE` through your service manager (the [systemd example](./deployment.md#systemd) shows the setting); or
 - listen on a high port such as `8443` and forward 443 to it with your load balancer, a container port mapping or a firewall rule.
 
 ## Rotate the certificate
 
-statica reads the certificate and key once, when it starts. Nothing reloads them, and SIGHUP ends the process instead of reloading (see [Deploy, roll out and shut down](./deployment.md#signals)). To install a renewed certificate:
+statica reads the certificate and key once, when it starts. Nothing reloads them, and SIGHUP ends the process instead of reloading ([signals](./deployment.md#signals)). To install a renewed certificate:
 
 1. Write the new chain and key to the configured paths, or to new paths that you set in the configuration.
 2. Run `statica config validate` with the new files, as the user that runs statica.
-3. Restart statica. With several instances, restart them one at a time, so that the others keep serving: each restart drains active requests and starts with an empty memory cache ([Configuration changes and restarts](../architecture/lifecycle.md#configuration-changes-and-restarts)).
+3. Restart statica. With several instances, restart them one at a time, so that the others keep serving: each restart drains active requests and starts with an empty memory cache ([Configuration changes and restarts](../architecture/memory-cache.md#restarts)).
 
 statica exports no metric about the certificate. Watch its expiry date with your own monitoring, for example by connecting to the listener as in [Verify it](#verify-it).
 
@@ -150,8 +148,5 @@ A failed handshake produces no response and no log event: statica discards the T
 ## Related pages
 
 - [TLS on the public listener](../architecture/security.md#tls-on-the-public-listener): what statica does and does not do with TLS.
-- [Configuration reference: `server.tls`](../reference/configuration.md#server-tls).
-- [Run behind a reverse proxy, CDN or ingress](./behind-a-proxy.md).
-- [Deploy, roll out and shut down](./deployment.md).
-- [Response headers and CORS](./headers-and-cors.md).
+- [Run behind a reverse proxy, CDN or ingress](./behind-a-proxy.md): end TLS at a proxy instead.
 - [Troubleshooting](./troubleshooting.md#statica-exits-with-status-2-at-startup): certificate and key files that fail to load.

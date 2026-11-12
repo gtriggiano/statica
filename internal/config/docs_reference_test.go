@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -14,16 +16,49 @@ import (
 )
 
 // The configuration reference documents every field under a heading that is
-// exactly its path in backticks, followed by a "**Type:**" line and a
-// "**Default:**" line. A list item adds "[]" to the path and a map entry adds
-// ".<name>": cache.rules[].match.prefix, headers.set.<name>.
+// exactly its path in backticks, followed by a "**Type:**" line, a
+// "**Default:**" line and, when validation narrows the type, an "**Allowed:**"
+// line. A list item adds "[]" to the path and a map entry adds ".<name>":
+// cache.rules[].match.prefix, headers.set.<name>.
+//
+// The default is a YAML literal in backticks or one of four words, so that
+// "no default" never has two meanings:
+//
+//	required                  omitting the field is an error at its path
+//	unset — <what happens>    the field stays unset, and no value that can
+//	                          be written loads the same way
+//	inherits `<field>`        unset here; the named field of the same type applies
+//	derived from `<field>`    copied from the named field (derivedDefaults)
+//
+// An allowed line that starts with one of these forms is checked against
+// Parse; any text may follow a form after "; ":
+//
+//	`a`, `b` or `c`           exactly these values load (for a list, as items)
+//	`1` to `3`                the bounds load, their neighbors do not
+//	positive                  zero is rejected
+//	zero or positive          zero loads
+//	nonempty                  "" or [] is rejected
+//
+// A list of values is complete: it equals the enumeration of the field in the
+// JSON Schema (jsonSchemaNotes), which TestJSONSchema keeps equal to the
+// published file. A string or list that rejects its empty value has an allowed
+// line. The text after "; ", and an allowed line in free text, are not checked,
+// except for the rules between two fields in crossFieldRules.
+//
+// Each top-level section with fields below it has a table of them, whose cells
+// repeat these lines.
 var referencePage = filepath.Join("..", "..", "docs", "reference", "configuration.md")
 
 var (
 	fieldHeadingRE   = regexp.MustCompile("^#{2,6} `([a-z0-9_]+(?:\\.[a-z0-9_]+|\\[\\]|\\.<name>)*)`$")
 	typeLineRE       = regexp.MustCompile(`^\*\*Type:\*\* (.+)\\$`)
-	defaultLiteralRE = regexp.MustCompile("^\\*\\*Default:\\*\\* `([^`]+)`")
-	defaultNoneRE    = regexp.MustCompile(`^\*\*Default:\*\* none — (\S.*)$`)
+	defaultLiteralRE = regexp.MustCompile("^\\*\\*Default:\\*\\* `([^`]+)`$")
+	defaultWordRE    = regexp.MustCompile("^\\*\\*Default:\\*\\* (required|unset|inherits|derived from)(?: `([^`]+)`)?(?: — (\\S.*))?$")
+	allowedLineRE    = regexp.MustCompile(`^\*\*Allowed:\*\* (\S.*)$`)
+	allowedEnumRE    = regexp.MustCompile("^`[^`]+`(?:(?:, | or )`[^`]+`)+$")
+	allowedRangeRE   = regexp.MustCompile("^`(-?[0-9]+)` to `(-?[0-9]+)`$")
+	codeRE           = regexp.MustCompile("`([^`]+)`")
+	tableHeader      = "| Field | Type | Default | Allowed |"
 	anchorRE         = regexp.MustCompile(`[^a-z0-9]+`)
 	indexRE          = regexp.MustCompile(`\[[0-9]+\]`)
 )
@@ -73,6 +108,75 @@ var derivedDefaults = map[string]struct{ from, value string }{
 	"admin.origin_health.key": {from: "index", value: "home.html"},
 }
 
+// codeEnums are the fields whose values the code names with constants: their
+// allowed line lists exactly these.
+var codeEnums = func() map[string][]string {
+	ttlModes := []string{TTLModeCeiling, TTLModeFloor, TTLModeFallback, TTLModeFixed}
+	directives := []string{RequestDirectivesHonor, RequestDirectivesRevalidateOnly, RequestDirectivesIgnore}
+	return map[string][]string{
+		"cache.ttl_mode":                   ttlModes,
+		"cache.rules[].ttl_mode":           ttlModes,
+		"cache.request_directives":         directives,
+		"cache.rules[].request_directives": directives,
+	}
+}()
+
+// schemaEnum is the enumeration of the field in the JSON Schema, as the page
+// writes its values, and false for a field without one. A list has the
+// enumeration of its items.
+func schemaEnum(path string) ([]string, bool) {
+	note := jsonSchemaNotes[path]
+	var values []string
+	for _, n := range note.intEnum {
+		values = append(values, strconv.Itoa(n))
+	}
+	values = append(values, note.enum...)
+	values = append(values, note.itemEnum...)
+	return values, len(values) > 0
+}
+
+// patternEnums are the fields whose listed values are spelled in any letter
+// case, which the JSON Schema expresses with a pattern instead of an
+// enumeration.
+var patternEnums = map[string][]string{
+	"server.client_ip_header": {"X-Forwarded-For", "X-Real-IP"},
+}
+
+// crossFieldRules are the rules between two fields that the page states after
+// "; " on the allowed line of field. The line names every field of related,
+// by its path or by its last segment, and Parse accepts the values of valid
+// and rejects those of invalid, which differ at the boundary of the rule.
+var crossFieldRules = []struct {
+	field          string
+	related        []string
+	valid, invalid map[string]string
+}{
+	{
+		field:   "admin.origin_health.timeout",
+		related: []string{"admin.origin_health.interval"},
+		valid:   map[string]string{"admin.origin_health.interval": "10s", "admin.origin_health.timeout": "9999ms", "admin.origin_health.max_staleness": "1h"},
+		invalid: map[string]string{"admin.origin_health.interval": "10s", "admin.origin_health.timeout": "10s", "admin.origin_health.max_staleness": "1h"},
+	},
+	{
+		field:   "admin.origin_health.max_staleness",
+		related: []string{"admin.origin_health.interval", "admin.origin_health.timeout"},
+		valid:   map[string]string{"admin.origin_health.interval": "10s", "admin.origin_health.timeout": "2s", "admin.origin_health.max_staleness": "12001ms"},
+		invalid: map[string]string{"admin.origin_health.interval": "10s", "admin.origin_health.timeout": "2s", "admin.origin_health.max_staleness": "12s"},
+	},
+	{
+		field:   "cache.max_object_bytes",
+		related: []string{"cache.max_bytes"},
+		valid:   map[string]string{"cache.max_bytes": "8MiB", "cache.max_fill_bytes": "16MiB", "cache.max_object_bytes": "8MiB"},
+		invalid: map[string]string{"cache.max_bytes": "8MiB", "cache.max_fill_bytes": "16MiB", "cache.max_object_bytes": "8193KiB"},
+	},
+	{
+		field:   "cache.max_object_bytes",
+		related: []string{"cache.max_fill_bytes"},
+		valid:   map[string]string{"cache.max_bytes": "16MiB", "cache.max_fill_bytes": "8MiB", "cache.max_object_bytes": "8MiB"},
+		invalid: map[string]string{"cache.max_bytes": "16MiB", "cache.max_fill_bytes": "8MiB", "cache.max_object_bytes": "8193KiB"},
+	},
+}
+
 type schemaField struct {
 	path string
 	typ  reflect.Type
@@ -81,8 +185,11 @@ type schemaField struct {
 type referenceEntry struct {
 	line    int
 	typ     string // the documented type
-	literal string // the documented default, empty for "none"
-	none    string // the explanation that follows "none —"
+	literal string // the documented default, empty when it is a word
+	word    string // required, unset, inherits or derived from
+	ref     string // the field that "inherits" and "derived from" name
+	summary string // the default as the section's table repeats it
+	allowed string // the text of the **Allowed:** line, or empty
 }
 
 func TestDocsConfigReference(t *testing.T) {
@@ -116,11 +223,19 @@ func TestDocsConfigReference(t *testing.T) {
 			t.Errorf("%s:%d: %s: documented type %q, want %q", referencePage, entry.line, field.path, entry.typ, want)
 		}
 		if entry.literal == "" {
+			if entry.ref != "" {
+				if named, ok := documented[entry.ref]; !ok || named.typ != entry.typ {
+					t.Errorf("%s:%d: %s: the default names `%s`, which is not a field of type %s", referencePage, entry.line, field.path, entry.ref, entry.typ)
+				}
+			}
 			checkNoDefault(t, field, entry)
 		} else {
 			checkDefault(t, field.path, entry)
 		}
+		checkAllowed(t, field, entry)
 	}
+	checkCrossFieldRules(t, documented)
+	checkSummaryTables(t, string(data), documented)
 }
 
 // collectSchemaFields appends every exported field reachable from t,
@@ -186,6 +301,9 @@ func typeName(t reflect.Type) string {
 // zeroLiteral is the YAML spelling of the zero value of a plain scalar field,
 // or "" for other fields.
 func zeroLiteral(t reflect.Type) string {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
 	switch {
 	case t == durationType:
 		return "0s"
@@ -238,33 +356,49 @@ func parseReferencePage(t *testing.T, page string) map[string]referenceEntry {
 			t.Errorf("%s:%d: %s is already documented at line %d", referencePage, line, path, previous.line)
 			continue
 		}
-		// The first two lines of the section: **Type:**, ending with a hard
-		// line break, then **Default:**.
+		// The first paragraph of the section: **Type:**, **Default:** and an
+		// optional **Allowed:**, joined by hard line breaks.
+		j := i + 1
+		for j < len(lines) && strings.TrimSpace(lines[j]) == "" {
+			j++
+		}
 		var body []string
-		for j := i + 1; j < len(lines) && len(body) < 2; j++ {
-			if strings.HasPrefix(lines[j], "#") {
-				break
+		for ; j < len(lines) && strings.TrimSpace(lines[j]) != ""; j++ {
+			body = append(body, lines[j])
+		}
+		for k := 0; k < len(body)-1; k++ {
+			if !strings.HasSuffix(body[k], `\`) {
+				t.Errorf(`%s:%d: %s: every line of the first paragraph but the last must end with \`, referencePage, line, path)
 			}
-			if strings.TrimSpace(lines[j]) != "" || len(body) == 1 {
-				body = append(body, lines[j])
-			}
+			body[k] = strings.TrimSuffix(body[k], `\`)
 		}
 		var typ []string
-		if len(body) == 2 {
-			typ = typeLineRE.FindStringSubmatch(body[0])
+		if len(body) == 2 || len(body) == 3 {
+			typ = typeLineRE.FindStringSubmatch(body[0] + `\`)
 		}
 		if typ == nil {
-			t.Errorf(`%s:%d: %s: the section must start with a **Type:** line ending with \`, referencePage, line, path)
+			t.Errorf("%s:%d: %s: the section must start with a **Type:** line, a **Default:** line and an optional **Allowed:** line", referencePage, line, path)
 			continue
 		}
 		entry := referenceEntry{line: line, typ: typ[1]}
 		if m := defaultLiteralRE.FindStringSubmatch(body[1]); m != nil {
-			entry.literal = m[1]
-		} else if m := defaultNoneRE.FindStringSubmatch(body[1]); m != nil {
-			entry.none = m[1]
+			entry.literal, entry.summary = m[1], "`"+m[1]+"`"
+		} else if m := defaultWordRE.FindStringSubmatch(body[1]); m != nil && (m[2] != "") == (m[1] == "inherits" || m[1] == "derived from") && (m[1] != "unset" || m[3] != "") {
+			entry.word, entry.ref, entry.summary = m[1], m[2], m[1]
+			if m[2] != "" {
+				entry.summary += " `" + m[2] + "`"
+			}
 		} else {
-			t.Errorf("%s:%d: %s: the line after **Type:** must be **Default:** `<yaml literal>` or **Default:** none — <explanation>", referencePage, line, path)
+			t.Errorf("%s:%d: %s: the line after **Type:** must be **Default:** followed by `<yaml literal>`, required, unset — <what happens>, inherits `<field>` or derived from `<field>`", referencePage, line, path)
 			continue
+		}
+		if len(body) == 3 {
+			m := allowedLineRE.FindStringSubmatch(body[2])
+			if m == nil {
+				t.Errorf("%s:%d: %s: the line after **Default:** must be **Allowed:** <constraint>", referencePage, line, path)
+				continue
+			}
+			entry.allowed = m[1]
 		}
 		documented[path] = entry
 	}
@@ -297,16 +431,21 @@ func checkDefault(t *testing.T, path string, entry referenceEntry) {
 	}
 }
 
-// checkNoDefault checks a field documented as "Default: none". A field whose
-// default is copied from another field must follow it. A field is documented
-// as required exactly when omitting it makes the configuration invalid at its
-// path. Any other field must stay unset when omitted, and no explicit value
-// may load the same way: "none" never stands for false, zero or an empty
-// string that can be written.
+// checkNoDefault checks a field whose default is a word. A field derived from
+// another field must follow it. A field is documented as required exactly
+// when omitting it makes the configuration invalid at its path. Any other
+// field must stay unset when omitted, and no explicit value may load the same
+// way: "unset" and "inherits" never stand for false, zero or an empty string
+// that can be written.
 func checkNoDefault(t *testing.T, field schemaField, entry referenceEntry) {
 	t.Helper()
 	path := field.path
-	if d, ok := derivedDefaults[path]; ok {
+	d, derived := derivedDefaults[path]
+	if derived != (entry.word == "derived from") || derived && d.from != entry.ref {
+		t.Errorf("%s:%d: %s: a default is documented as derived from a field exactly when derivedDefaults names that field", referencePage, entry.line, path)
+		return
+	}
+	if derived {
 		source, err := yamlValue(d.value)
 		if err != nil {
 			t.Fatal(err)
@@ -328,11 +467,11 @@ func checkNoDefault(t *testing.T, field schemaField, entry referenceEntry) {
 		at := indexRE.ReplaceAllString(invalid.Path, "[]")
 		required = at == path || strings.HasPrefix(at, path+".") || at == strings.ReplaceAll(path, ".<name>", "")
 	}
-	if documented := strings.HasPrefix(entry.none, "required"); documented != required {
+	if documented := entry.word == "required"; documented != required {
 		if documented {
 			t.Errorf("%s:%d: %s is documented as required, but omitting it does not fail at its path (error: %v)", referencePage, entry.line, path, err)
 		} else {
-			t.Errorf("%s:%d: omitting %s fails at its path, so document it as **Default:** none — required: %v", referencePage, entry.line, path, err)
+			t.Errorf("%s:%d: omitting %s fails at its path, so document it as **Default:** required: %v", referencePage, entry.line, path, err)
 		}
 		return
 	}
@@ -369,6 +508,212 @@ func checkNoDefault(t *testing.T, field schemaField, entry referenceEntry) {
 	}
 }
 
+// loads reports whether the base configuration loads with the field set to
+// the YAML literal.
+func loads(t *testing.T, path, literal string) bool {
+	t.Helper()
+	value, err := yamlValue(literal)
+	if err != nil {
+		t.Fatalf("%s: %v", path, err)
+	}
+	_, err = Parse(referenceVariant(t, path, value), noEnv)
+	return err == nil
+}
+
+// checkAllowed checks the **Allowed:** line of a field against Parse. Numbers
+// always have one: every integer, duration and byte size is constrained.
+func checkAllowed(t *testing.T, field schemaField, entry referenceEntry) {
+	t.Helper()
+	path, typ := field.path, typeName(field.typ)
+	at := fmt.Sprintf("%s:%d: %s", referencePage, entry.line, path)
+	form, _, _ := strings.Cut(entry.allowed, "; ")
+	zero := zeroLiteral(field.typ)
+	if strings.HasPrefix(typ, "list of ") {
+		zero = "[]"
+	}
+	item := func(literal string) string {
+		if typ == "list of strings" {
+			return "[" + literal + "]"
+		}
+		return literal
+	}
+	if values, ok := codeEnums[path]; ok {
+		var listed []string
+		for _, m := range codeRE.FindAllStringSubmatch(form, -1) {
+			listed = append(listed, m[1])
+		}
+		if !allowedEnumRE.MatchString(form) || !slices.Equal(listed, values) {
+			t.Errorf("%s: the allowed line must list the values of the code, in order: %s", at, strings.Join(values, ", "))
+		}
+	}
+	// A list of values on the page and the enumeration of the schema are the
+	// same list.
+	enum, hasEnum := schemaEnum(path)
+	if values, ok := patternEnums[path]; ok {
+		enum, hasEnum = values, true
+	}
+	if listed := allowedEnumRE.MatchString(form); listed || hasEnum {
+		var values []string
+		if listed {
+			for _, m := range codeRE.FindAllStringSubmatch(form, -1) {
+				values = append(values, strings.Trim(m[1], `"`))
+			}
+		}
+		if !slices.Equal(values, enum) {
+			t.Errorf("%s: the allowed line lists the values [%s], but the JSON Schema (jsonSchemaNotes) has [%s]: list the same values, in the same order", at, strings.Join(values, ", "), strings.Join(enum, ", "))
+		}
+	}
+	switch {
+	case allowedEnumRE.MatchString(form):
+		for _, m := range codeRE.FindAllStringSubmatch(form, -1) {
+			if !loads(t, path, item(m[1])) {
+				t.Errorf("%s: the allowed value `%s` is rejected", at, m[1])
+			}
+		}
+		other := "statica-other-value"
+		if typ == "integer" {
+			other = "1"
+		}
+		if loads(t, path, item(other)) {
+			t.Errorf("%s: the allowed line lists every value, but `%s` loads too", at, other)
+		}
+	case allowedRangeRE.MatchString(form):
+		m := allowedRangeRE.FindStringSubmatch(form)
+		low, _ := strconv.Atoi(m[1])
+		high, _ := strconv.Atoi(m[2])
+		for _, n := range []int{low, high} {
+			if !loads(t, path, strconv.Itoa(n)) {
+				t.Errorf("%s: the allowed bound %d is rejected", at, n)
+			}
+		}
+		for _, n := range []int{low - 1, high + 1} {
+			if loads(t, path, strconv.Itoa(n)) {
+				t.Errorf("%s: %d is outside the allowed range, but it loads", at, n)
+			}
+		}
+	case form == "positive" || form == "nonempty":
+		if zero == "" {
+			t.Errorf("%s: %q does not apply to a %s", at, form, typ)
+		} else if loads(t, path, zero) {
+			t.Errorf("%s: documented as %s, but `%s` loads", at, form, zero)
+		}
+	case form == "zero or positive":
+		if zero == "" || !loads(t, path, zero) {
+			t.Errorf("%s: documented as zero or positive, but `%s` is rejected", at, zero)
+		}
+	default:
+		if typ == "integer" || typ == "duration" || typ == "byte size" {
+			t.Errorf("%s: a %s needs an **Allowed:** line that starts with positive, zero or positive, a range (`1` to `3`) or a list of values", at, typ)
+		}
+		// Validation narrows a string or a list that rejects its empty value.
+		if entry.allowed == "" && (typ == "string" || typ == "list of strings") && !loads(t, path, zero) {
+			t.Errorf("%s: `%s` is rejected, so the field needs an **Allowed:** line", at, zero)
+		}
+	}
+}
+
+// checkCrossFieldRules checks each rule of crossFieldRules against Parse and
+// against the allowed line of its field.
+func checkCrossFieldRules(t *testing.T, documented map[string]referenceEntry) {
+	t.Helper()
+	with := func(values map[string]string) error {
+		data := []byte(referenceBase)
+		for path, literal := range values {
+			value, err := yamlValue(literal)
+			if err != nil {
+				t.Fatal(err)
+			}
+			data = variantOf(t, data, path, value)
+		}
+		_, err := Parse(data, noEnv)
+		return err
+	}
+	for _, rule := range crossFieldRules {
+		entry, ok := documented[rule.field]
+		if !ok {
+			continue
+		}
+		at := fmt.Sprintf("%s:%d: %s", referencePage, entry.line, rule.field)
+		if err := with(rule.valid); err != nil {
+			t.Errorf("%s: %v must load: %v", at, rule.valid, err)
+		}
+		var invalid *Error
+		if err := with(rule.invalid); !errors.As(err, &invalid) || invalid.Path != rule.field {
+			t.Errorf("%s: %v must be rejected at the field (error: %v)", at, rule.invalid, err)
+		}
+		_, text, _ := strings.Cut(entry.allowed, "; ")
+		for _, related := range rule.related {
+			short := related[strings.LastIndex(related, ".")+1:]
+			if !strings.Contains(text, "`"+related+"`") && !strings.Contains(text, "`"+short+"`") {
+				t.Errorf("%s: the rule involves %s: name it after \"; \" on the allowed line", at, related)
+			}
+		}
+	}
+}
+
+// checkSummaryTables checks that each top-level field section with fields
+// below it has one table that lists them in order, and that each row repeats
+// the type, the default and the allowed line of its field.
+func checkSummaryTables(t *testing.T, page string, documented map[string]referenceEntry) {
+	t.Helper()
+	var section string     // the top-level field of the current section
+	var want, got []string // the rows of its table
+	finish := func() {
+		if section == "" {
+			return
+		}
+		if len(want) > 0 && len(got) == 0 {
+			t.Errorf("%s: section %s needs a table that starts with %s", referencePage, section, tableHeader)
+		}
+		for i := 0; i < len(want) || i < len(got); i++ {
+			switch {
+			case i >= len(got):
+				t.Errorf("%s: the table of %s lacks the row %s", referencePage, section, want[i])
+			case i >= len(want):
+				t.Errorf("%s: the table of %s has a row without a field below it: %s", referencePage, section, got[i])
+			case got[i] != want[i]:
+				t.Errorf("%s: the table of %s has the row\n\t%s\nwant\n\t%s", referencePage, section, got[i], want[i])
+			}
+		}
+	}
+	lines := strings.Split(page, "\n")
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+		if _, marker, length, _, ok := openingFence(line); ok {
+			for i++; i < len(lines) && !closingFence(lines[i], marker, length); i++ {
+			}
+			continue
+		}
+		if strings.HasPrefix(line, "## ") {
+			finish()
+			section, want, got = "", nil, nil
+		}
+		if line == tableHeader && section != "" {
+			for i += 2; i < len(lines) && strings.HasPrefix(lines[i], "|"); i++ {
+				got = append(got, lines[i])
+			}
+			i--
+			continue
+		}
+		m := fieldHeadingRE.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		path := m[1]
+		if strings.HasPrefix(line, "## ") {
+			section = path
+			continue
+		}
+		entry, ok := documented[path]
+		if !ok || section == "" {
+			continue
+		}
+		anchor := strings.Trim(anchorRE.ReplaceAllString(path, "-"), "-")
+		want = append(want, fmt.Sprintf("| [`%s`](#%s) | %s | %s | %s |", path, anchor, entry.typ, entry.summary, entry.allowed))
+	}
+	finish()
+}
+
 func yamlValue(literal string) (*yaml.Node, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal([]byte(literal), &doc); err != nil || len(doc.Content) != 1 {
@@ -382,8 +727,14 @@ func yamlValue(literal string) (*yaml.Node, error) {
 // first map entry.
 func referenceVariant(t *testing.T, path string, value *yaml.Node) []byte {
 	t.Helper()
+	return variantOf(t, []byte(referenceBase), path, value)
+}
+
+// variantOf is referenceVariant for another configuration.
+func variantOf(t *testing.T, base []byte, path string, value *yaml.Node) []byte {
+	t.Helper()
 	var doc yaml.Node
-	if err := yaml.Unmarshal([]byte(referenceBase), &doc); err != nil {
+	if err := yaml.Unmarshal(base, &doc); err != nil {
 		t.Fatal(err)
 	}
 	segments := strings.Split(strings.ReplaceAll(path, "[]", ".[]"), ".")

@@ -1,0 +1,960 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gtriggiano.github.io/statica/config.schema.json",
+  "title": "statica configuration",
+  "description": "The configuration file of statica, a web server that serves one S3 bucket, or a prefix inside it, as one static website. This schema checks field names, types, allowed values, integer bounds and the shape of some strings. It does not check the rules that involve two fields (such as an admin listener that shares the address of the public one, or cache limits that must fit one another), the syntax of redirect templates and regular expressions, reserved header names, the syntax of hostnames, addresses, ports, object keys and Cache-Control values, or environment variables: a string value can take text from the environment with ${NAME}, and such a value is checked only after substitution. `statica config validate` is the authority on whether a file is valid.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "s3"
+  ],
+  "properties": {
+    "hosts": {
+      "description": "Allowlist of request hostnames: exact DNS names or IP addresses, without scheme, port or wildcard. Without it, every valid hostname is accepted.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "server": {
+      "description": "The public listener.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "listen": {
+          "description": "Address of the public listener, as host:port; an empty host listens on every interface.",
+          "type": "string",
+          "anyOf": [
+            {
+              "pattern": ":[1-9][0-9]{0,4}$"
+            },
+            {
+              "$ref": "#/$defs/environment"
+            }
+          ],
+          "default": "127.0.0.1:8080"
+        },
+        "tls": {
+          "description": "Serves HTTPS on the public listener with one certificate chain. Without it, the listener serves plain HTTP.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "cert_file",
+            "key_file"
+          ],
+          "properties": {
+            "cert_file": {
+              "description": "Path of the PEM certificate chain, leaf certificate first; a relative path is resolved against the directory of the configuration file.",
+              "type": "string",
+              "minLength": 1
+            },
+            "key_file": {
+              "description": "Path of the PEM private key that matches the leaf certificate.",
+              "type": "string",
+              "minLength": 1
+            },
+            "min_version": {
+              "description": "Minimum TLS version, as a quoted string.",
+              "type": "string",
+              "anyOf": [
+                {
+                  "enum": [
+                    "1.2",
+                    "1.3"
+                  ]
+                },
+                {
+                  "$ref": "#/$defs/environment"
+                }
+              ],
+              "default": "1.2"
+            }
+          }
+        },
+        "trusted_proxies": {
+          "description": "CIDR ranges of the proxies allowed to supply the client IP and the request ID. With an empty list, both headers are ignored.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "anyOf": [
+              {
+                "pattern": "/[0-9]{1,3}$"
+              },
+              {
+                "$ref": "#/$defs/environment"
+              }
+            ]
+          },
+          "default": []
+        },
+        "client_ip_header": {
+          "description": "Header from which statica takes the client IP when the peer is a trusted proxy: X-Forwarded-For or X-Real-IP, in any letter case.",
+          "type": "string",
+          "anyOf": [
+            {
+              "pattern": "^([Xx]-[Ff][Oo][Rr][Ww][Aa][Rr][Dd][Ee][Dd]-[Ff][Oo][Rr]|[Xx]-[Rr][Ee][Aa][Ll]-[Ii][Pp])$"
+            },
+            {
+              "$ref": "#/$defs/environment"
+            }
+          ],
+          "default": "X-Forwarded-For"
+        },
+        "request_id_header": {
+          "description": "Request header from which statica reuses a request ID when the peer is a trusted proxy.",
+          "type": "string",
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9!#$%&'*+.^_`|~-]+$"
+            },
+            {
+              "$ref": "#/$defs/environment"
+            }
+          ],
+          "default": "X-Request-ID"
+        },
+        "max_forwarded_hops": {
+          "description": "Maximum number of addresses statica reads from X-Forwarded-For.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 256,
+          "default": 16
+        },
+        "read_header_timeout": {
+          "description": "Time allowed to read the headers of a request. Positive.",
+          "$ref": "#/$defs/duration",
+          "default": "5s"
+        },
+        "response_header_timeout": {
+          "description": "Budget from the admission of a request to its response headers; when it expires first, the response is 504 Gateway Timeout. Positive.",
+          "$ref": "#/$defs/duration",
+          "default": "30s"
+        },
+        "write_idle_timeout": {
+          "description": "Time within which each write of a response to the client must finish. Positive.",
+          "$ref": "#/$defs/duration",
+          "default": "1m"
+        },
+        "idle_timeout": {
+          "description": "How long a keep-alive connection may stay idle between requests. Positive.",
+          "$ref": "#/$defs/duration",
+          "default": "1m"
+        },
+        "request_timeout": {
+          "description": "Total time limit of a request, from its admission to the end of the response body; 0s sets no total limit.",
+          "$ref": "#/$defs/duration",
+          "default": "0s"
+        },
+        "shutdown_timeout": {
+          "description": "Total budget of a graceful shutdown, from the first signal to the exit. Positive.",
+          "$ref": "#/$defs/duration",
+          "default": "30s"
+        },
+        "max_header_bytes": {
+          "description": "Maximum size of the request line and headers, in bytes.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1073741824,
+          "default": 32768
+        },
+        "max_connections": {
+          "description": "Maximum open connections on the public listener.",
+          "type": "integer",
+          "minimum": 1,
+          "default": 1024
+        },
+        "max_concurrent_requests": {
+          "description": "Maximum requests in progress at once; a request over the limit gets 503 Service Unavailable.",
+          "type": "integer",
+          "minimum": 1,
+          "default": 256
+        }
+      }
+    },
+    "admin": {
+      "description": "The admin listener, which serves /livez, /readyz and /metrics without authentication.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "listen": {
+          "description": "Address of the admin listener, as host:port. It must not share an address and port with server.listen.",
+          "type": "string",
+          "anyOf": [
+            {
+              "pattern": ":[1-9][0-9]{0,4}$"
+            },
+            {
+              "$ref": "#/$defs/environment"
+            }
+          ],
+          "default": "127.0.0.1:9090"
+        },
+        "origin_health": {
+          "description": "A background check of one object's metadata, which /readyz follows once enabled. Without it, readiness does not depend on the origin.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "description": "Turns the check on.",
+              "type": "boolean",
+              "default": false
+            },
+            "key": {
+              "description": "Object key to check, relative to s3.prefix. The default is the value of index.",
+              "type": "string",
+              "minLength": 1
+            },
+            "interval": {
+              "description": "Time from the end of one check to the start of the next. Positive.",
+              "$ref": "#/$defs/duration",
+              "default": "30s"
+            },
+            "timeout": {
+              "description": "Deadline of one check. Positive and less than interval.",
+              "$ref": "#/$defs/duration",
+              "default": "3s"
+            },
+            "failure_threshold": {
+              "description": "Consecutive failed checks that turn a healthy origin unhealthy.",
+              "type": "integer",
+              "minimum": 1,
+              "default": 3
+            },
+            "success_threshold": {
+              "description": "Consecutive successful checks that turn an unhealthy origin healthy again.",
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            },
+            "max_staleness": {
+              "description": "Age of the last success beyond which /readyz reports origin_stale. Greater than interval plus timeout.",
+              "$ref": "#/$defs/duration",
+              "default": "90s"
+            }
+          }
+        }
+      }
+    },
+    "s3": {
+      "description": "The origin: one bucket and, optionally, a publication prefix in it. Credentials come from the standard AWS credential chain, never from this file.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bucket"
+      ],
+      "properties": {
+        "bucket": {
+          "description": "Bucket name.",
+          "type": "string",
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+            },
+            {
+              "$ref": "#/$defs/environment"
+            }
+          ]
+        },
+        "region": {
+          "description": "Signing region. Without it, statica takes the region from the AWS configuration of the environment.",
+          "type": "string",
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9_-]+$"
+            },
+            {
+              "$ref": "#/$defs/environment"
+            }
+          ]
+        },
+        "prefix": {
+          "description": "Publication prefix: the part of the bucket that holds the site. Empty selects the bucket root.",
+          "type": "string",
+          "default": ""
+        },
+        "endpoint": {
+          "description": "URL of an S3-compatible service: http or https, a host and an optional port. Without it, statica uses the AWS S3 endpoint of the region.",
+          "type": "string",
+          "anyOf": [
+            {
+              "pattern": "^[Hh][Tt][Tt][Pp][Ss]?://"
+            },
+            {
+              "$ref": "#/$defs/environment"
+            }
+          ]
+        },
+        "path_style": {
+          "description": "Uses path-style requests (https://endpoint/bucket/key) instead of virtual-hosted-style requests.",
+          "type": "boolean",
+          "default": false
+        },
+        "allow_http": {
+          "description": "Must be true for an http endpoint.",
+          "type": "boolean",
+          "default": false
+        },
+        "insecure_skip_verify": {
+          "description": "Skips verification of the origin's TLS certificate chain and hostname.",
+          "type": "boolean",
+          "default": false
+        },
+        "response_header_timeout": {
+          "description": "Time to wait for the response headers of one origin request; each retry waits again. Positive.",
+          "$ref": "#/$defs/duration",
+          "default": "10s"
+        },
+        "read_idle_timeout": {
+          "description": "Longest wait for data while statica reads an object body from the origin. Positive.",
+          "$ref": "#/$defs/duration",
+          "default": "30s"
+        },
+        "max_attempts": {
+          "description": "Attempts per origin request, the first included.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3,
+          "default": 2
+        },
+        "features": {
+          "description": "Switches for optional origin capabilities: turn off a capability the provider does not support.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "conditional_reads": {
+              "description": "Allows If-None-Match and If-Match on origin reads.",
+              "type": "boolean",
+              "default": true
+            },
+            "range_reads": {
+              "description": "Allows Range on origin reads.",
+              "type": "boolean",
+              "default": true
+            },
+            "checksums": {
+              "description": "Asks the origin for object checksums and validates a checksum when the response carries one.",
+              "type": "boolean",
+              "default": false
+            }
+          }
+        }
+      }
+    },
+    "cache": {
+      "description": "The memory cache.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "description": "false disables the memory cache: every request reads the origin, and no rule can enable it again.",
+          "type": "boolean",
+          "default": true
+        },
+        "max_bytes": {
+          "description": "Memory charged to cache entries: bodies, metadata and a fixed overhead per entry. Positive.",
+          "$ref": "#/$defs/byteSize",
+          "default": "128MiB"
+        },
+        "max_entries": {
+          "description": "Maximum number of entries.",
+          "type": "integer",
+          "minimum": 1,
+          "default": 10000
+        },
+        "max_object_bytes": {
+          "description": "Largest object body stored in memory; larger objects are streamed from the origin and not stored. Positive, at most max_bytes and at most max_fill_bytes.",
+          "$ref": "#/$defs/byteSize",
+          "default": "2MiB"
+        },
+        "max_fill_bytes": {
+          "description": "Memory for the bodies being read from the origin into the cache at the same time. Positive.",
+          "$ref": "#/$defs/byteSize",
+          "default": "32MiB"
+        },
+        "max_concurrent_fills": {
+          "description": "Maximum shared fills (origin reads into the cache) in progress at once.",
+          "type": "integer",
+          "minimum": 1,
+          "default": 16
+        },
+        "max_waiters_per_key": {
+          "description": "Maximum requests sharing one fill, the request that started it included; 1 disables sharing.",
+          "type": "integer",
+          "minimum": 1,
+          "default": 64
+        },
+        "fill_timeout": {
+          "description": "Lifetime of one shared fill or revalidation, from its start. Positive.",
+          "$ref": "#/$defs/duration",
+          "default": "30s"
+        },
+        "ttl": {
+          "description": "How long a stored object stays fresh; cache.ttl_mode decides how it combines with the freshness lifetime that the origin assigns.",
+          "$ref": "#/$defs/duration",
+          "default": "5m"
+        },
+        "ttl_mode": {
+          "description": "The role of cache.ttl when the origin assigns the object a freshness lifetime: ceiling caps it at the TTL, floor raises it to the TTL, fallback keeps it, fixed ignores it.",
+          "type": "string",
+          "anyOf": [
+            {
+              "enum": [
+                "ceiling",
+                "floor",
+                "fallback",
+                "fixed"
+              ]
+            },
+            {
+              "$ref": "#/$defs/environment"
+            }
+          ],
+          "default": "ceiling"
+        },
+        "negative_ttl": {
+          "description": "How long statica remembers that an object does not exist; 0s stores no negative entries.",
+          "$ref": "#/$defs/duration",
+          "default": "5s"
+        },
+        "stale_if_error": {
+          "description": "How long after it expires an entry may still be served when refreshing it fails because the origin timed out, kept throttling or was unavailable.",
+          "$ref": "#/$defs/duration",
+          "default": "0s"
+        },
+        "request_directives": {
+          "description": "Which Cache-Control directives of a request the memory cache applies: honor applies no-store, no-cache and max-age, revalidate_only drops no-store, ignore drops all three.",
+          "type": "string",
+          "anyOf": [
+            {
+              "enum": [
+                "honor",
+                "revalidate_only",
+                "ignore"
+              ]
+            },
+            {
+              "$ref": "#/$defs/environment"
+            }
+          ],
+          "default": "honor"
+        },
+        "rules": {
+          "description": "Overrides of the cache policy for some objects: the first rule whose match matches the object path applies, and the fields it omits keep the global value.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "description": "The object paths of the rule: exactly one of exact, prefix and regex.",
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "exact": {
+                    "description": "An absolute decoded object path, compared for equality; it cannot end in /.",
+                    "type": "string",
+                    "anyOf": [
+                      {
+                        "pattern": "^/"
+                      },
+                      {
+                        "$ref": "#/$defs/environment"
+                      }
+                    ]
+                  },
+                  "prefix": {
+                    "description": "An absolute path ending in /: it matches the paths under it and the path without the trailing slash.",
+                    "type": "string",
+                    "anyOf": [
+                      {
+                        "pattern": "^/(.*/)?$"
+                      },
+                      {
+                        "$ref": "#/$defs/environment"
+                      }
+                    ]
+                  },
+                  "regex": {
+                    "description": "A regular expression in RE2 syntax, at most 1024 bytes, that the whole object path must match.",
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "minProperties": 1,
+                "maxProperties": 1
+              },
+              "enabled": {
+                "description": "false bypasses the memory cache for the matching objects. Inherits cache.enabled.",
+                "type": "boolean"
+              },
+              "ttl": {
+                "description": "Replaces cache.ttl for the matching objects.",
+                "$ref": "#/$defs/duration"
+              },
+              "ttl_mode": {
+                "description": "Replaces cache.ttl_mode for the matching objects.",
+                "type": "string",
+                "anyOf": [
+                  {
+                    "enum": [
+                      "ceiling",
+                      "floor",
+                      "fallback",
+                      "fixed"
+                    ]
+                  },
+                  {
+                    "$ref": "#/$defs/environment"
+                  }
+                ]
+              },
+              "negative_ttl": {
+                "description": "Replaces cache.negative_ttl for the matching objects.",
+                "$ref": "#/$defs/duration"
+              },
+              "stale_if_error": {
+                "description": "Replaces cache.stale_if_error for the matching objects.",
+                "$ref": "#/$defs/duration"
+              },
+              "request_directives": {
+                "description": "Replaces cache.request_directives for the matching objects.",
+                "type": "string",
+                "anyOf": [
+                  {
+                    "enum": [
+                      "honor",
+                      "revalidate_only",
+                      "ignore"
+                    ]
+                  },
+                  {
+                    "$ref": "#/$defs/environment"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "index": {
+      "description": "Name of the directory index object: a request path ending in / reads <path><index>.",
+      "type": "string",
+      "anyOf": [
+        {
+          "pattern": "^[^/]+$"
+        },
+        {
+          "$ref": "#/$defs/environment"
+        }
+      ],
+      "default": "index.html"
+    },
+    "not_found": {
+      "description": "Object key, relative to s3.prefix, of a custom 404 page. Without it, statica answers with a built-in plain-text 404 page.",
+      "type": "string",
+      "minLength": 1
+    },
+    "errors": {
+      "description": "How statica answers some origin errors.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "access_denied": {
+          "description": "Response to a 403 Forbidden from the origin: not_found answers 404 Not Found, bad_gateway answers 502 Bad Gateway.",
+          "type": "string",
+          "anyOf": [
+            {
+              "enum": [
+                "not_found",
+                "bad_gateway"
+              ]
+            },
+            {
+              "$ref": "#/$defs/environment"
+            }
+          ],
+          "default": "not_found"
+        }
+      }
+    },
+    "redirects": {
+      "description": "Ordered redirect rules, evaluated before the origin is read: the first matching rule answers with its status and a Location header.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "from",
+          "to",
+          "status"
+        ],
+        "properties": {
+          "from": {
+            "description": "Source template: an absolute path, then an optional ?query, with {name} placeholders.",
+            "type": "string",
+            "anyOf": [
+              {
+                "pattern": "^/"
+              },
+              {
+                "$ref": "#/$defs/environment"
+              }
+            ]
+          },
+          "to": {
+            "description": "Destination template: an absolute path or an https:// URL, which can use the placeholders bound in from.",
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "description": "Status of the redirect.",
+            "type": "integer",
+            "enum": [
+              301,
+              302,
+              307,
+              308
+            ]
+          },
+          "query": {
+            "description": "What happens to the query of the request: drop removes it, preserve forwards it, unmatched forwards the fields that from does not match.",
+            "type": "string",
+            "anyOf": [
+              {
+                "enum": [
+                  "drop",
+                  "preserve",
+                  "unmatched"
+                ]
+              },
+              {
+                "$ref": "#/$defs/environment"
+              }
+            ],
+            "default": "drop"
+          },
+          "captures": {
+            "description": "Constraints on placeholders, by placeholder name; each name must be bound in from.",
+            "type": "object",
+            "propertyNames": {
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            },
+            "additionalProperties": {
+              "description": "The constraint for one placeholder.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "pattern"
+              ],
+              "properties": {
+                "pattern": {
+                  "description": "A regular expression in RE2 syntax that the whole decoded value must match.",
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "headers": {
+      "description": "Static response headers.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "set": {
+          "description": "Headers added to every response statica writes on the public listener, errors and redirects included. Some header names are reserved.",
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z0-9!#$%&'*+.^_`|~-]+$"
+          },
+          "additionalProperties": {
+            "description": "Value of the header, sent as written.",
+            "type": "string",
+            "minLength": 1
+          },
+          "default": {}
+        }
+      }
+    },
+    "cache_control": {
+      "description": "The Cache-Control header of the responses that serve an object.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "default": {
+          "description": "Value for the requests no rule matches: auto or a Cache-Control value.",
+          "type": "string",
+          "minLength": 1,
+          "default": "auto"
+        },
+        "rules": {
+          "description": "The first rule whose match matches the decoded request path sets the value.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match",
+              "value"
+            ],
+            "properties": {
+              "match": {
+                "description": "The request paths of the rule: exactly one of exact, prefix and regex.",
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "exact": {
+                    "description": "An absolute decoded path, compared for equality with the request path.",
+                    "type": "string",
+                    "anyOf": [
+                      {
+                        "pattern": "^/"
+                      },
+                      {
+                        "$ref": "#/$defs/environment"
+                      }
+                    ]
+                  },
+                  "prefix": {
+                    "description": "An absolute path ending in /: it matches the paths under it and the path without the trailing slash.",
+                    "type": "string",
+                    "anyOf": [
+                      {
+                        "pattern": "^/(.*/)?$"
+                      },
+                      {
+                        "$ref": "#/$defs/environment"
+                      }
+                    ]
+                  },
+                  "regex": {
+                    "description": "A regular expression in RE2 syntax, at most 1024 bytes, that the whole request path must match.",
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "minProperties": 1,
+                "maxProperties": 1
+              },
+              "value": {
+                "description": "auto or a Cache-Control value.",
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "cors": {
+      "description": "Cross-origin access to GET and HEAD. Without it, statica sends no CORS headers.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "allowed_origins"
+      ],
+      "properties": {
+        "allowed_origins": {
+          "description": "Exact origins, scheme://host with an optional port and nothing else.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "anyOf": [
+              {
+                "pattern": "^[Hh][Tt][Tt][Pp][Ss]?://[^/?#]+$"
+              },
+              {
+                "$ref": "#/$defs/environment"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "compression": {
+      "description": "Precompressed variants published next to an object; responses are never compressed on the fly.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "description": "off serves the object itself; precompressed serves a published variant that the client accepts.",
+          "type": "string",
+          "anyOf": [
+            {
+              "enum": [
+                "off",
+                "precompressed"
+              ]
+            },
+            {
+              "$ref": "#/$defs/environment"
+            }
+          ],
+          "default": "off"
+        },
+        "encodings": {
+          "description": "The codings statica looks for, in order of preference at equal quality. The default is [br, gzip] in precompressed mode; not allowed in off mode.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "anyOf": [
+              {
+                "enum": [
+                  "br",
+                  "gzip"
+                ]
+              },
+              {
+                "$ref": "#/$defs/environment"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "spa": {
+      "description": "Serves an app shell for the client-side routes of a single-page application. Without it, there is no fallback.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fallback"
+      ],
+      "properties": {
+        "fallback": {
+          "description": "Object key of the app shell, relative to s3.prefix.",
+          "type": "string",
+          "minLength": 1
+        },
+        "include_prefixes": {
+          "description": "The fallback applies only under these prefixes: absolute paths ending in /.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "anyOf": [
+              {
+                "pattern": "^/(.*/)?$"
+              },
+              {
+                "$ref": "#/$defs/environment"
+              }
+            ]
+          }
+        },
+        "exclude_prefixes": {
+          "description": "Paths under these prefixes never get the fallback: absolute paths ending in /.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "anyOf": [
+              {
+                "pattern": "^/(.*/)?$"
+              },
+              {
+                "$ref": "#/$defs/environment"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "observability": {
+      "description": "Logs, written as logfmt events on standard output.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "log_level": {
+          "description": "Minimum level of the events written.",
+          "type": "string",
+          "anyOf": [
+            {
+              "enum": [
+                "debug",
+                "info",
+                "warn",
+                "error"
+              ]
+            },
+            {
+              "$ref": "#/$defs/environment"
+            }
+          ],
+          "default": "info"
+        },
+        "access_log": {
+          "description": "false stops the http_request events only.",
+          "type": "boolean",
+          "default": true
+        },
+        "log_client_ip": {
+          "description": "false leaves the client and peer addresses out of the http_request events.",
+          "type": "boolean",
+          "default": true
+        },
+        "redact_query_params": {
+          "description": "Query parameters whose values are replaced with [REDACTED] in the logged path, compared ignoring ASCII case.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "default": [
+            "token",
+            "access_token",
+            "api_key",
+            "password",
+            "secret",
+            "signature",
+            "X-Amz-Credential",
+            "X-Amz-Signature",
+            "X-Amz-Security-Token"
+          ]
+        }
+      }
+    }
+  },
+  "$defs": {
+    "duration": {
+      "description": "A duration with explicit units, such as 500ms, 30s, 5m or 1h30m. Write 0s for zero: a number without a unit is rejected.",
+      "type": "string",
+      "anyOf": [
+        {
+          "pattern": "^[+-]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$"
+        },
+        {
+          "$ref": "#/$defs/environment"
+        }
+      ]
+    },
+    "byteSize": {
+      "description": "A whole number of bytes with a binary unit: KiB, MiB or GiB, such as 512KiB or 128MiB.",
+      "type": "string",
+      "anyOf": [
+        {
+          "pattern": "^[0-9]+(KiB|MiB|GiB)$"
+        },
+        {
+          "$ref": "#/$defs/environment"
+        }
+      ]
+    },
+    "environment": {
+      "description": "A string that takes all or part of its value from the environment, with ${NAME}. The value is checked after substitution.",
+      "type": "string",
+      "pattern": "\\$\\{[A-Za-z_][A-Za-z0-9_]*\\}"
+    }
+  }
+}

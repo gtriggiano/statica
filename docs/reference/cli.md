@@ -188,7 +188,7 @@ The whole probe, client setup included, must finish within `server.response_head
 
 On success it prints `origin object accessible` on standard output and exits 0. This means that the credentials and the region were resolved, the endpoint answered, and the object's metadata was readable with those credentials. It does not mean that other objects are readable, that the object's body is readable or intact, that the optional capabilities in `s3.features` work, or that `serve` can bind its listeners.
 
-On failure it prints a message such as those below and exits 1. The messages are fixed text: they never contain the endpoint, the key, credentials or the provider's error text. A 403 Forbidden is reported whatever `errors.access_denied` says ([access denied](../architecture/access-denied.md#config-check-origin)). [Common failures](../guide/s3-providers.md#common-failures) gives the likely cause of each message for AWS S3 and S3-compatible services.
+On failure it prints a message such as those below and exits 1. The messages are fixed text: they never contain the endpoint, the key, credentials or the provider's error text. A 403 Forbidden is reported whatever `errors.access_denied` says ([access denied](../architecture/access-denied.md#how-a-denial-shows-up)). [Common failures](../guide/s3-providers.md#common-failures) gives the likely cause of each message for AWS S3 and S3-compatible services.
 
 | Message | Cause |
 | --- | --- |
@@ -209,7 +209,7 @@ On failure it prints a message such as those below and exits 1. The messages are
 statica serve --config config.yaml
 ```
 
-Runs the server: the public listener, the admin listener with `/livez`, `/readyz` and `/metrics` ([admin endpoints](./admin-endpoints.md)), the memory cache and, when enabled, the origin health check. It is online: it discovers AWS credentials and the region and reads the origin. [Deploy, roll out and shut down](../guide/deployment.md) shows how to run it under systemd or Kubernetes.
+Runs the server: the public listener, the admin listener with `/livez`, `/readyz` and `/metrics` ([admin endpoints](./admin-endpoints.md)), the memory cache and, when enabled, the origin health check. It is online: it discovers AWS credentials and the region and reads the origin. [Deploy on Kubernetes](../guide/kubernetes.md) and [Deploy, roll out and shut down](../guide/deployment.md) show how to run it on Kubernetes or under systemd.
 
 ### Startup
 
@@ -250,6 +250,6 @@ See [Startup, readiness and shutdown](../architecture/lifecycle.md#startup) for 
 | A listener failed while serving | `listener_failed`, then `shutdown_started reason=listener_failure` | 1 |
 | Invalid usage, configuration or TLS files | None | 2 |
 
-A failure takes precedence over a pending signal, so a failed start is never reported as a clean stop ([exit status](../architecture/lifecycle.md#exit-status)). Exit status 0 after a forced shutdown is deliberate: the shutdown was requested, and the warn event records that it was cut short.
+A failure takes precedence over a pending signal, so a failed start is never reported as a clean stop. Exit status 0 after a forced shutdown is deliberate: the shutdown was requested, and the warn event records that it was cut short.
 
-[Shut down without cutting requests](../guide/deployment.md#shut-down-without-cutting-requests) shows how to size the grace period and which [signals](../guide/deployment.md#signals) to send, and [Exit status](../guide/deployment.md#exit-status) how a supervisor should treat each status. [Troubleshooting](../guide/troubleshooting.md) goes from a failed start or an unexpected status to its cause.
+[Shut down without cutting requests](../guide/deployment.md#shut-down-without-cutting-requests) shows how to size the grace period around a shutdown. [Troubleshooting](../guide/troubleshooting.md) goes from a failed start or an unexpected status to its cause.

@@ -1,3 +1,7 @@
+---
+description: "What statica does, where it fits in a deployment, its configuration at a glance and what it leaves to other tools."
+---
+
 # What is statica?
 
 **statica** is a web server for static websites stored in S3. This page describes what it does, where it fits in a deployment, and what it leaves to other tools.
@@ -13,63 +17,51 @@
 
 A bucket holds objects, not a website. To serve a site from it, something has to map URLs to object keys, answer index paths and missing pages, speak HTTP the way browsers and CDNs expect, limit how much traffic reaches the bucket, and report what it is doing.
 
-statica does this with one YAML file and read access to the bucket. It signs its requests with credentials from the standard AWS credential chain, so the bucket can stay private, and it does not use S3 static website hosting. It reads objects and their metadata, and never writes, lists or deletes them ([the origin is the source of truth](../architecture/index.md#the-origin-is-the-source-of-truth)).
+statica does this with one YAML file and read access to the bucket. It signs its requests with credentials from the standard AWS credential chain, so the bucket can stay private, and it does not use S3 static website hosting. It reads objects and their metadata, and never writes, lists or deletes them ([the origin is the source of truth](../architecture/index.md#design-principles)).
 
 ## How it fits in a deployment
 
 - **Directly.** Bind [`server.listen`](../reference/configuration.md#server-listen) to a public address and configure [`server.tls`](../reference/configuration.md#server-tls) for HTTPS with HTTP/2 ([Serve HTTPS directly](./tls.md)).
 - **Behind a CDN, reverse proxy, load balancer or ingress.** List the proxy's addresses in [`server.trusted_proxies`](../reference/configuration.md#server-trusted-proxies): statica then takes the client IP and the request ID from the proxy's headers ([Run behind a reverse proxy, CDN or ingress](./behind-a-proxy.md)).
 - **One instance per site.** To serve several sites, run one instance for each. Instances that serve the same site do not share their memory caches: each reads the bucket on its own.
-- **Operated like any service.** It logs to standard output, exposes `/livez`, `/readyz` and `/metrics` on the admin listener, stops gracefully on SIGINT or SIGTERM, and applies a configuration change when it restarts ([Deploy, roll out and shut down](./deployment.md)).
+- **Operated like any service.** It logs to standard output, exposes `/livez`, `/readyz` and `/metrics` on the admin listener, stops gracefully on SIGINT or SIGTERM, and applies a configuration change when it restarts ([Deploy on Kubernetes](./kubernetes.md)).
 
 ## Features
 
-### Serving
+- **Website paths.** The [`index`](../reference/configuration.md#index) object for paths that end in `/`, a redirect that adds a missing trailing slash, and an optional custom 404 page ([Publish a site to S3](./publishing.md)).
+- **Redirect rules.** Path placeholders and query handling, answered without reading the bucket ([Configure redirects](./redirects.md)).
+- **Single-page apps.** An app shell for client-side routes ([Serve a single-page application](./single-page-apps.md)).
+- **Precompressed files.** The Brotli and gzip variants that you publish next to an object ([Serve precompressed files](./precompressed-files.md)).
+- **A bounded memory cache.** Byte and entry limits, shared origin reads for concurrent misses, revalidation of expired objects, negative entries and optional stale-if-error ([Tune the memory cache](./cache-tuning.md)).
+- **HTTP semantics.** Conditional requests, single byte ranges, `Cache-Control` and `Age` ([Control browser and CDN caching](./browser-caching.md)).
+- **Response headers and CORS.** Your own headers on every response, and CORS grants for the origins you list ([Response headers and CORS](./headers-and-cors.md)).
+- **HTTPS.** TLS with HTTP/2 on the public listener, from a certificate you provide ([Serve HTTPS directly](./tls.md)).
+- **S3 and compatible origins.** AWS S3 or a custom endpoint, credentials from the standard AWS credential chain, and switches for optional origin capabilities ([Connect to S3 and S3-compatible providers](./s3-providers.md)).
+- **Logs, metrics and health checks.** Redacted logfmt events on standard output, Prometheus metrics, liveness and readiness with an optional origin health check ([Work with the logs](./logs.md), [Monitor with Prometheus](./metrics.md), [Health checks and readiness](./health-checks.md)).
+- **Confinement.** Every object key stays inside the publication prefix, and the `Host` header never selects content ([Security model](../architecture/security.md)).
+- **Explicit limits.** Caps on connections, concurrent requests, header size, cache memory and the time of each request phase, with no queue: statica refuses work beyond them ([explicit resource limits](../architecture/index.md#design-principles)).
+- **Checks before start.** An invalid configuration is rejected before any socket opens, and commands validate a file and check access to the origin offline or on demand ([CLI reference](../reference/cli.md)).
 
-- Serves the bucket, or the publication prefix set by [`s3.prefix`](../reference/configuration.md#s3-prefix), as one site ([Publish a site to S3](./publishing.md)).
-- Maps paths to object keys: the [`index`](../reference/configuration.md#index) object for paths that end in `/`, a 308 Permanent Redirect that adds the trailing slash when only the index object exists, and an optional custom 404 Not Found page, [`not_found`](../reference/configuration.md#not-found) ([from path to object](../architecture/request-flow.md#from-path-to-object)).
-- Answers [`redirects`](../reference/configuration.md#redirects) rules, with path placeholders and query handling, without reading the bucket ([Configure redirects](./redirects.md)).
-- Serves an app shell for the client-side routes of a single-page app when you configure [`spa`](../reference/configuration.md#spa) ([Serve a single-page application](./single-page-apps.md)).
-- Serves the Brotli and gzip variants that you publish next to an object, with [`compression.mode: precompressed`](../reference/configuration.md#compression-mode) ([Serve precompressed files](./precompressed-files.md)).
+## The configuration at a glance
 
-### Memory cache
+One YAML file configures an instance. Only [`s3.bucket`](../reference/configuration.md#s3-bucket) is required; every other field has a default.
 
-- Holds objects up to [`cache.max_object_bytes`](../reference/configuration.md#cache-max-object-bytes) within [`cache.max_bytes`](../reference/configuration.md#cache-max-bytes) and [`cache.max_entries`](../reference/configuration.md#cache-max-entries), and streams larger objects without storing them ([limits and accounting](../architecture/memory-cache.md#limits-and-accounting)).
-- Lets concurrent requests that miss the same object share one origin read, within configured limits ([shared fills](../architecture/memory-cache.md#shared-fills)).
-- Keeps an object fresh for [`cache.ttl`](../reference/configuration.md#cache-ttl), or less when the origin's metadata asks for less. After that, it checks the object against the origin before using it again: with a conditional request when the object has an ETag and [`s3.features.conditional_reads`](../reference/configuration.md#s3-features-conditional-reads) is on, otherwise by reading it again ([freshness](../architecture/memory-cache.md#freshness), [revalidation](../architecture/memory-cache.md#revalidation)).
-- Remembers missing objects for a short time ([negative entries](../architecture/memory-cache.md#negative-entries)) and can serve an expired copy while the origin fails ([stale-if-error](../architecture/memory-cache.md#stale-if-error)).
-- Takes per-path overrides in [`cache.rules`](../reference/configuration.md#cache-rules) ([Tune the memory cache](./cache-tuning.md)).
+| Block | What it controls | Read more |
+| --- | --- | --- |
+| [`s3`](../reference/configuration.md#s3) | The bucket, region, publication prefix, endpoint and origin timeouts. | [Connect to S3 and S3-compatible providers](./s3-providers.md) |
+| [`server`](../reference/configuration.md#server) | The public listener: address, TLS, trusted proxies, limits and timeouts. | [Serve HTTPS directly](./tls.md), [Run behind a reverse proxy, CDN or ingress](./behind-a-proxy.md) |
+| [`admin`](../reference/configuration.md#admin) | The admin listener and the origin health check. | [Health checks and readiness](./health-checks.md) |
+| [`hosts`](../reference/configuration.md#hosts) | The hostnames that the instance accepts. | [Run behind a reverse proxy, CDN or ingress](./behind-a-proxy.md) |
+| [`cache`](../reference/configuration.md#cache) | The memory cache: limits, lifetimes and per-path rules. | [Tune the memory cache](./cache-tuning.md) |
+| [`cache_control`](../reference/configuration.md#cache-control) | The `Cache-Control` sent to browsers and CDNs. | [Control browser and CDN caching](./browser-caching.md) |
+| [`index`](../reference/configuration.md#index), [`not_found`](../reference/configuration.md#not-found), [`spa`](../reference/configuration.md#spa) | Index objects, the custom 404 page and the single-page-app shell. | [Publish a site to S3](./publishing.md), [Serve a single-page application](./single-page-apps.md) |
+| [`redirects`](../reference/configuration.md#redirects) | Redirect rules. | [Configure redirects](./redirects.md) |
+| [`headers`](../reference/configuration.md#headers), [`cors`](../reference/configuration.md#cors) | Response headers and CORS grants. | [Response headers and CORS](./headers-and-cors.md) |
+| [`compression`](../reference/configuration.md#compression) | Precompressed variants. | [Serve precompressed files](./precompressed-files.md) |
+| [`errors`](../reference/configuration.md#errors) | The public answer to an origin denial. | [Connect to S3 and S3-compatible providers](./s3-providers.md#choose-how-denials-look-to-visitors) |
+| [`observability`](../reference/configuration.md#observability) | Log level, access log and what the logs contain. | [Work with the logs](./logs.md) |
 
-### HTTP behavior
-
-- Evaluates `If-None-Match`, `If-Modified-Since`, `If-Match` and `If-Unmodified-Since`, and serves single byte ranges with `If-Range` ([ranges and conditional requests](../architecture/ranges-and-conditionals.md)).
-- Forwards the origin's `Cache-Control` or `Expires`, or sends a `max-age` taken from `cache.ttl` when the origin sets neither, unless [`cache_control`](../reference/configuration.md#cache-control) sets a value for the path. A response that serves an object, other than the SPA shell or a custom 404 page, carries `Age` once it is at least one second old ([Cache-Control and Age](../architecture/cache-control.md), [Control browser and CDN caching](./browser-caching.md)).
-- Adds the headers you set in [`headers.set`](../reference/configuration.md#headers-set) and CORS grants for [`cors.allowed_origins`](../reference/configuration.md#cors-allowed-origins) ([Response headers and CORS](./headers-and-cors.md)). Every response it writes carries `X-Request-ID` and `X-Content-Type-Options: nosniff` ([response headers](../reference/http-responses.md#response-headers)).
-- Serves HTTP/1.1, or HTTPS with HTTP/2 and HTTP/1.1 when `server.tls` is set ([TLS on the public listener](../architecture/security.md#tls-on-the-public-listener)).
-
-### S3 and compatible origins
-
-- Reads AWS S3, or an S3-compatible service at [`s3.endpoint`](../reference/configuration.md#s3-endpoint), with path-style requests ([`s3.path_style`](../reference/configuration.md#s3-path-style)) and plain HTTP for a local server ([`s3.allow_http`](../reference/configuration.md#s3-allow-http)) ([Connect to S3 and S3-compatible providers](./s3-providers.md)).
-- Takes credentials from the standard AWS credential chain, never from its configuration file ([origin credentials](../architecture/security.md#origin-credentials)), and the region from [`s3.region`](../reference/configuration.md#s3-region) or the AWS configuration.
-- Switches optional origin capabilities on or off with [`s3.features`](../reference/configuration.md#s3-features), and bounds each origin request with attempts and timeouts ([timeouts](../architecture/timeouts.md)).
-- Answers an origin's 403 Forbidden as 404 Not Found or 502 Bad Gateway, as [`errors.access_denied`](../reference/configuration.md#errors-access-denied) says ([access denied](../architecture/access-denied.md)).
-
-### Operations
-
-- Writes logfmt events to standard output: startup and shutdown events and, by default ([`observability.access_log`](../reference/configuration.md#observability-access-log)), one `http_request` event for each public request that statica handles. The values of sensitive query parameters such as `token` are redacted. Requests that Go's HTTP server rejects before statica sees them are not logged ([log reference](../reference/logs.md), [Work with the logs](./logs.md)).
-- Exposes Prometheus metrics on `/metrics` ([metrics reference](../reference/metrics.md), [Monitor with Prometheus](./metrics.md)).
-- Answers `/livez` and `/readyz` on the admin listener, with an optional origin health check, [`admin.origin_health`](../reference/configuration.md#admin-origin-health) ([admin endpoints](../reference/admin-endpoints.md), [Health checks and readiness](./health-checks.md)).
-- Drains requests on SIGINT or SIGTERM within one budget, [`server.shutdown_timeout`](../reference/configuration.md#server-shutdown-timeout) ([shutdown](../architecture/lifecycle.md#shutdown)).
-- Validates and prints a configuration offline, and checks access to the origin, before you start the server ([CLI reference](../reference/cli.md)).
-
-### Security and limits
-
-- Keeps every object key inside the publication prefix: it refuses `..` segments, encoded separators and hidden segments instead of cleaning the path ([confinement](../architecture/security.md#requests-cannot-leave-the-publication-prefix)).
-- Never lets the `Host` header select the origin, and can restrict accepted hostnames with [`hosts`](../reference/configuration.md#hosts) ([Host never selects the origin](../architecture/security.md#host-never-selects-the-origin)).
-- Trusts forwarded client IPs and request IDs only from the proxies you list ([client IP attribution](../architecture/security.md#trusted-proxies-and-client-ip-attribution)).
-- Caps connections, concurrent requests, header size, cache memory and the time of each request phase, and keeps no queue of its own: it refuses requests beyond [`server.max_concurrent_requests`](../reference/configuration.md#server-max-concurrent-requests), and clients beyond [`server.max_connections`](../reference/configuration.md#server-max-connections) wait in the operating system's connection backlog ([explicit resource limits](../architecture/index.md#explicit-resource-limits)).
-- Rejects an invalid configuration before it opens any socket ([checks before anything starts](../architecture/lifecycle.md#checks-before-anything-starts)).
-- Keeps credentials, provider error messages and redacted query values out of logs and command output ([safe logging](../architecture/security.md#safe-logging)).
+[Configuration examples](../reference/examples.md#advanced-configuration) shows a complete production-style file.
 
 ## What statica does not do
 
@@ -89,7 +81,6 @@ statica does this with one YAML file and read access to the bucket. It signs its
 
 ## Related pages
 
-- [Quickstart](./quickstart.md): build statica and serve a bucket.
-- [Configuration basics](./configuration.md): how the configuration file works.
+- [Quickstart](./quickstart.md): serve a bucket on your machine.
+- [Deploy on Kubernetes](./kubernetes.md): run statica in production.
 - [Architecture overview](../architecture/index.md): the design principles and components.
-- [Security model](../architecture/security.md): trust boundaries and what statica leaves to other layers.

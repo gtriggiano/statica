@@ -7,7 +7,7 @@ Point **statica** at a bucket on AWS S3 or on an S3-compatible service, give it 
 - A bucket with your site under a [publication prefix](./publishing.md), and its region. For an S3-compatible service, its endpoint URL and the region name it expects in request signatures.
 - Credentials that can read the objects under the prefix.
 
-This page names no particular provider. Only `GetObject` and `HeadObject` requests are sent to the origin, with the optional conditional, range and checksum headers that `s3.features` controls, so a service can serve a site when it answers those requests as S3 does. Check yours with `config check-origin`, as described in [Verify it](#verify-it).
+Only `GetObject` and `HeadObject` requests are sent to the origin, with the optional conditional, range and checksum headers that `s3.features` controls, so a service can serve a site when it answers those requests as S3 does. Check yours with `config check-origin`, as described in [Verify it](#verify-it).
 
 ## Configure AWS S3
 
@@ -25,6 +25,8 @@ Set [`s3.region`](../reference/configuration.md#s3-region) explicitly. When you 
 ## Provide credentials
 
 The configuration file has no credential fields. Credentials come from the standard AWS credential chain: for example `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, a profile in the shared AWS files, or the role of the machine or container. The AWS SDK refreshes temporary credentials ([origin credentials](../architecture/security.md#origin-credentials)).
+
+Temporary credentials, such as those of an assumed role or of an AWS IAM Identity Center session, have a third part, the session token: when you pass them in environment variables, also set `AWS_SESSION_TOKEN`.
 
 Origin access is read-only: no request lists, writes or deletes objects. On AWS, both kinds of request need the `s3:GetObject` permission on the objects under the prefix:
 
@@ -89,7 +91,7 @@ s3:
 
 The origin's certificate and hostname are verified against the system's trusted certificate authorities, for AWS and for `s3.endpoint` alike. To trust an endpoint whose certificate comes from a private certificate authority, add that authority to the trust store of the host or container image.
 
-You can also use two environment variables. `SSL_CERT_FILE` names a PEM bundle that replaces the default bundle file, and `SSL_CERT_DIR` names directories of certificates that replace the default directories; on Linux, set both to replace the whole trust store. On macOS and Windows, setting either one replaces the platform's certificate verifier. They apply to every outgoing connection, credential providers included, so keep the public authorities in them if statica also reaches AWS services.
+You can also use two environment variables. `SSL_CERT_FILE` names a PEM bundle that replaces the default bundle file, and `SSL_CERT_DIR` names directories of certificates that replace the default directories; set both to replace the whole trust store. They apply to every outgoing connection, credential providers included, so keep the public authorities in them if statica also reaches AWS services.
 
 [`s3.insecure_skip_verify: true`](../reference/configuration.md#s3-insecure-skip-verify) keeps the connection encrypted but stops verifying the certificate and hostname.
 
@@ -161,7 +163,7 @@ statica config check-origin --config config.yaml
 origin object accessible
 ```
 
-`statica serve` does not contact the origin when it starts, so this command is the check that catches missing credentials or a wrong region before traffic does. Once the server runs, the `startup` event shows the origin settings in use, never the endpoint URL or the bucket:
+`statica serve` does not contact the origin when it starts ([check a configuration](./configuration.md#check-a-configuration)), so this command is the check that catches missing credentials or a wrong region before traffic does. Once the server runs, the `startup` event shows the origin settings in use, never the endpoint URL or the bucket:
 
 ```text
 level=info event=startup ... s3_endpoint=custom s3_region=example-1 s3_path_style=true s3_allow_http=false s3_insecure_skip_verify=false s3_conditional_reads=true s3_range_reads=false s3_checksums=false s3_max_attempts=2 s3_response_header_timeout=10s s3_read_idle_timeout=30s ...
@@ -195,19 +197,8 @@ To make readiness follow the origin, enable the [origin health check](../referen
 | Missing pages answer 404, but `/guide` is not redirected to `/guide/` and the 404 page is not used | The credentials lack `s3:ListBucket` on AWS (see [the trade-off](#the-s3-listbucket-trade-off)). |
 | Range requests for objects that are not in memory get 502 Bad Gateway, logged with `error_class=origin_invalid_response` | The provider does not honor `Range`. Turn off `s3.features.range_reads`. |
 
-## Pitfalls
-
-- **Wrong credentials look like missing pages.** With the default `errors.access_denied: not_found`, a rejected key turns every URL that reads the bucket into a 404. Watch `statica_http_requests_total{outcome="origin_failure"}` and the `error` level access events, not only 5xx rates.
-- **A server without credentials starts and reports ready.** Without the origin health check, readiness does not depend on the origin.
-- **`config validate` is offline.** It checks the syntax of the bucket name and region, but not the region discovered from the AWS configuration, the credentials or the bucket. Run `config check-origin` in the deployment's environment.
-- **Revoked access takes effect at expiry.** Fresh memory cache entries are still served until they expire.
-
 ## Related pages
 
-- [Publish a site to S3](./publishing.md)
-- [Health checks and readiness](./health-checks.md): make readiness follow the origin.
 - [Troubleshooting](./troubleshooting.md): 404, 502, 503 and 504 responses traced to the origin.
 - [Work with the logs](./logs.md) and [Monitor with Prometheus](./metrics.md): `error_class` in the access log and the origin series.
-- [Access denied](../architecture/access-denied.md): how 403 answers are handled and reported.
-- [Security model](../architecture/security.md#origin-connections): origin connections and credentials.
-- [`s3` configuration reference](../reference/configuration.md#s3)
+- [Deploy on Kubernetes](./kubernetes.md): credentials from the role of the pod.

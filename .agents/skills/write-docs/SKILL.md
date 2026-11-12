@@ -28,10 +28,10 @@ The rules are in `CONTRIBUTING.md` § Documentation. Read it before writing a ne
    - example data only: `example.com`, `example-*` buckets, the documentation IP ranges, RFC 1918 ranges for proxies.
 4. **Handle the blocks that tests read:**
    - **Configuration snippet:** a fence titled exactly `yaml [config.yaml]`. A test validates it, completing a partial fragment with an `s3.bucket`. Give any other YAML another title, such as `yaml [prometheus.yml]`, and never write that title in prose.
-   - **Complete example:** a file in `docs/examples/`, included with `<<< @/examples/<name>.yaml{yaml}`. A new file goes in the list of `TestRepositoryExamples` in `internal/config/config_test.go`.
-   - **Version reference** (image tag, `VERSION=`, download URL, asset name): only inside a block between `<!-- x-release-please-start-version -->` and `<!-- x-release-please-end -->`, one version per line, equal to `.release-please-manifest.json`. Elsewhere use `${VERSION}`, set in such a block on the same page. An image tag is never `latest` or a minor version. A file that gets its first block must be listed in `extra-files` in `release-please-config.json`.
+   - **Complete example:** a file in `docs/examples/`, included with `<<< @/examples/<name>.yaml{yaml}`. `TestRepositoryExamples` in `internal/config/config_test.go` loads every file there as a complete configuration.
+   - **Version reference** (image tag, download URL, asset name): write the placeholder `{{VERSION}}`, as in `ghcr.io/gtriggiano/statica:{{VERSION}}`; the build replaces it with the release that the site documents. Never the version itself, a `VERSION` shell variable, or an image tag that is `latest` or a minor version. Keep version references out of files included with `<<<`, which are not replaced.
    - **Mermaid diagram:** introduced by a sentence, with `accTitle` and an `accDescr` that summarizes the diagram on its own, and no `style`, `classDef` or colors. Aim for top-down flowcharts of about 10 nodes and sequence diagrams of at most 4 participants.
-5. **New page:** add it to the sidebar in `docs/.vitepress/navigation.ts`. Every `.md` file under `docs/` is published, so put nothing else there.
+5. **New page:** add it to the sidebar in `docs/.vitepress/navigation.ts`. Every `.md` file under `docs/` is published, so put nothing else there. Open the page with a paragraph that says what it covers: it becomes the description of the page in `llms.txt`, the index that AI agents read.
 
 ## Check
 
@@ -41,4 +41,4 @@ make docs-build     # fails on a dead link or anchor
 make docs-check     # renders every page and diagram in headless Chrome
 ```
 
-Run `make check` as well when you touched a configuration snippet, `docs/examples/`, `docs/reference/configuration.md`, `docs/reference/metrics.md` or a version block. `make docs-check` needs Google Chrome or Chromium, found in the standard install locations or through `CHROME_PATH` or `CHROME_BIN`; if none is available, say that the check did not run.
+Run `make check` as well when you touched a configuration snippet, `docs/examples/`, `docs/reference/configuration.md`, `docs/reference/metrics.md` or a version reference. `make docs-check` needs Google Chrome or Chromium, found in the standard install locations or through `CHROME_PATH` or `CHROME_BIN`; if none is available, say that the check did not run.
