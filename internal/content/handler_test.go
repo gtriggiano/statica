@@ -688,6 +688,59 @@ func TestEffectiveCachePolicyUsesResolvedVariantAndCopiesPointers(t *testing.T) 
 	}
 }
 
+// A regex sees the same path as exact and prefix: cache.rules the selected
+// object, so a directory's index or a precompressed variant, and
+// cache_control.rules the request path.
+func TestRegexRulesMatchTheirOwnPaths(t *testing.T) {
+	f := fakeReader{get: func(_ context.Context, key string, _ storage.ReadOptions) (*storage.Object, error) {
+		switch key {
+		case "app.js", "app.js.br", "docs/index.html":
+			return object(key, storage.Metadata{Size: int64(len(key))}), nil
+		}
+		return nil, &storage.Error{Kind: storage.NotFound}
+	}}
+	for _, tc := range []struct {
+		name, rules string
+		want        map[string]string // target and Accept-Encoding → Cache-Control
+	}{
+		{"file names only", `cache:
+  rules:
+    - match: {regex: '.*\.js'}
+      ttl: 1h
+    - match: {regex: '.*\.html'}
+      ttl: 2m
+cache_control:
+  rules:
+    - match: {regex: '.*\.html'}
+      value: no-cache
+`, map[string]string{"/app.js": "max-age=3600", "/app.js br": "max-age=300", "/docs/": "max-age=120", "/docs/index.html": "no-cache"}},
+		{"directories and variants", `cache:
+  rules:
+    - match: {regex: '.*\.js(?:\.br|\.gz)?'}
+      ttl: 1h
+cache_control:
+  rules:
+    - match: {regex: '.*/|.*\.html'}
+      value: no-cache
+`, map[string]string{"/app.js": "max-age=3600", "/app.js br": "max-age=3600", "/docs/": "no-cache", "/docs/index.html": "no-cache"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, err := config.Parse([]byte("s3: {bucket: example-websites}\ncompression: {mode: precompressed, encodings: [br]}\n"+tc.rules), func(string) (string, bool) { return "", false })
+			if err != nil {
+				t.Fatal(err)
+			}
+			h := boundary(t, c, f)
+			for target, want := range tc.want {
+				path, encoding, _ := strings.Cut(target, " ")
+				w := request(h, "GET", "http://example.com"+path, http.Header{"Accept-Encoding": {encoding}})
+				if w.Code != 200 || w.Header().Get("Content-Encoding") != encoding || w.Header().Get("Cache-Control") != want {
+					t.Errorf("%s: %d %q %q, want 200 %q %q", target, w.Code, w.Header().Get("Content-Encoding"), w.Header().Get("Cache-Control"), encoding, want)
+				}
+			}
+		})
+	}
+}
+
 func TestPreparationCommitChecksClockWithoutTimerCallback(t *testing.T) {
 	p := startPreparation(context.Background(), time.Now().Add(time.Hour))
 	defer p.close()

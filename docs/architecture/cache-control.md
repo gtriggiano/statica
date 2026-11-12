@@ -61,9 +61,29 @@ cache_control:
 | `/assets/app.js`, served as its Brotli variant | `/assets/app.js` | `/assets/app.js.br` |
 | `/a%20b.txt` | `/a b.txt` | `/a b.txt` |
 
-In both kinds of rules, `exact` matches one path. A `prefix` ends with a slash and matches every path that starts with it, and also the same path without the trailing slash: `prefix: /assets/` matches `/assets/app.js` and `/assets`. `prefix: /` matches every path. The first matching rule wins.
+In both kinds of rules, `exact` matches one path. A `prefix` ends with a slash and matches every path that starts with it, and also the same path without the trailing slash: `prefix: /assets/` matches `/assets/app.js` and `/assets`. `prefix: /` matches every path. A `regex` must match the whole path: statica anchors it at both ends, so `.*\.js` matches `/assets/app.js` but not `/assets/app.json`. The first matching rule wins.
 
 So a projected `max-age` for a precompressed variant follows the rules that match the variant's path: a `cache.rules` entry with `exact: /assets/app.js` does not apply to `/assets/app.js.br`, while a `prefix` rule covers both.
+
+A `regex` sees the paths of the table too, so a pattern written for file names can miss a directory request or a precompressed variant:
+
+- In `cache_control.rules`, `.*\.html` does not match `/` or `/guide/`: a directory request keeps its trailing slash. Add `.*/` to cover directory requests: `.*/|.*\.html`.
+- In `cache.rules`, `.*\.js` does not match `/assets/app.js.br`: a precompressed variant keeps its suffix. Allow the suffix to cover the variants: `.*\.js(?:\.br|\.gz)?`.
+
+These rules use both patterns:
+
+```yaml [config.yaml]
+cache:
+  rules:
+    - match:
+        regex: '.*\.js(?:\.br|\.gz)?'
+      ttl: 1h
+cache_control:
+  rules:
+    - match:
+        regex: '.*/|.*\.html'
+      value: no-cache
+```
 
 ## Configuration, not residency
 

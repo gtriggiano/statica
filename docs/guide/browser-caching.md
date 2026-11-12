@@ -29,7 +29,7 @@ So, out of the box, every object without metadata, HTML pages included, may be k
 
 ## Set a policy per path
 
-[`cache_control.rules`](../reference/configuration.md#cache-control-rules) match the request path with `exact` or `prefix`; the first match wins, and [`cache_control.default`](../reference/configuration.md#cache-control-default) covers the rest. An explicit value replaces the object's `Cache-Control` and `Expires`. This configuration covers the usual cases:
+[`cache_control.rules`](../reference/configuration.md#cache-control-rules) match the request path with `exact`, `prefix` or `regex`; the first match wins, and [`cache_control.default`](../reference/configuration.md#cache-control-default) covers the rest. An explicit value replaces the object's `Cache-Control` and `Expires`. This configuration covers the usual cases:
 
 ```yaml [config.yaml]
 cache_control:
@@ -50,6 +50,19 @@ cache_control:
 ::: warning Every file under the prefix needs a content hash
 A rule for a whole prefix applies to every file under it. A file without a content hash in its name, such as `/assets/logo.png`, cannot be updated for a year in browsers and CDNs that already hold it. Put only content-addressed files under such a prefix.
 :::
+
+When content-addressed files share a directory with other files, select them by name with a `regex` instead. The pattern must match the whole request path:
+
+```yaml [config.yaml]
+cache_control:
+  default: no-cache
+  rules:
+    - match:
+        regex: '/assets/.+\.[0-9a-f]{8}\.(?:js|css)'
+      value: public, max-age=31536000, immutable
+```
+
+This rule matches `/assets/app.3f9a2c1b.js` and `/assets/main.0c4d5e6f.css`, but not `/assets/logo.png` ([which path a rule matches](../architecture/cache-control.md#which-path-a-rule-matches)).
 
 Any valid `Cache-Control` value works, for example `public, max-age=60, s-maxage=600` to let a CDN keep a page longer than browsers do. Use `value: auto` in a rule to keep the origin's policy for some paths under an explicit default.
 
@@ -128,7 +141,7 @@ curl -s -o /dev/null -w '%{http_code}\n' \
 
 - **An explicit value overrides the origin's `no-store` for clients.** A rule that sends `public, max-age=600` for an object stored with `Cache-Control: no-store` lets browsers and CDNs keep it, while statica itself still refuses to store it. Keep private content out of the publication prefix.
 - **Some responses are always `no-store`.** Redirects, 404 responses (the custom 404 page included), the single-page-app shell served for a route, 412 Precondition Failed and every error response carry `Cache-Control: no-store`, whatever `cache_control` says.
-- **The two kinds of rules see different paths.** `cache_control.rules` match `/guide/` and `/app.js`, `cache.rules` match `/guide/index.html` and `/app.js.br`. An `exact` rule written for one kind can miss in the other ([which path a rule matches](../architecture/cache-control.md#which-path-a-rule-matches)).
+- **The two kinds of rules see different paths.** `cache_control.rules` match `/guide/` and `/app.js`, `cache.rules` match `/guide/index.html` and `/app.js.br`. An `exact` or `regex` rule written for one kind can miss in the other ([which path a rule matches](../architecture/cache-control.md#which-path-a-rule-matches)).
 - **There is no purge.** Copies in browsers or CDNs cannot be removed: a long `max-age` on a URL whose content changes keeps the old content in their caches until it expires.
 - **Changes need a restart.** `cache_control` is read at startup, and copies that clients already hold keep the policy they were sent with.
 

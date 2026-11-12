@@ -615,21 +615,28 @@ cache:
 **Type:** mapping\
 **Default:** none — required.
 
-Exactly one of `exact` and `prefix`.
+Exactly one of `exact`, `prefix` and `regex`.
 
 ### `cache.rules[].match.exact`
 
 **Type:** string\
-**Default:** none — set either `exact` or `prefix`.
+**Default:** none — set one of `exact`, `prefix` or `regex`.
 
 An absolute path, compared for equality. Write the decoded path (`/a b.html`, not `/a%20b.html`): percent-encoded sequences are rejected. Segments cannot be empty, `.` or `..`, and cannot contain `\` or control characters. A path ending in `/`, `/` included, is rejected because it never matches an object path; name the index object instead (`/docs/index.html`).
 
 ### `cache.rules[].match.prefix`
 
 **Type:** string\
-**Default:** none — set either `exact` or `prefix`.
+**Default:** none — set one of `exact`, `prefix` or `regex`.
 
 An absolute path ending in `/`, with the same rules as `exact`. It matches the paths under it and the path without the trailing slash: `/assets/` matches `/assets/app.js` and `/assets`. `/` matches every path.
+
+### `cache.rules[].match.regex`
+
+**Type:** string\
+**Default:** none — set one of `exact`, `prefix` or `regex`.
+
+A nonempty regular expression in [RE2 syntax](https://pkg.go.dev/regexp/syntax), at most 1024 bytes, that the whole object path must match: statica anchors it at both ends. `.*\.html` matches `/docs/index.html` but not `/docs/index.html.br` or `/page.html.bak`. Matching is case-sensitive; use the `(?i)` flag to ignore case. In YAML, write the pattern in single quotes, where `\` has no special meaning.
 
 ### `cache.rules[].enabled`
 
@@ -887,21 +894,28 @@ The first rule whose `match` matches the decoded request path sets the value. Un
 **Type:** mapping\
 **Default:** none — required.
 
-Exactly one of `exact` and `prefix`.
+Exactly one of `exact`, `prefix` and `regex`.
 
 ### `cache_control.rules[].match.exact`
 
 **Type:** string\
-**Default:** none — set either `exact` or `prefix`.
+**Default:** none — set one of `exact`, `prefix` or `regex`.
 
 An absolute path compared for equality with the request path, with the syntax of [`cache.rules[].match.exact`](#cache-rules-match-exact). A path ending in `/` matches that directory request.
 
 ### `cache_control.rules[].match.prefix`
 
 **Type:** string\
-**Default:** none — set either `exact` or `prefix`.
+**Default:** none — set one of `exact`, `prefix` or `regex`.
 
 An absolute path ending in `/`, matched like [`cache.rules[].match.prefix`](#cache-rules-match-prefix).
+
+### `cache_control.rules[].match.regex`
+
+**Type:** string\
+**Default:** none — set one of `exact`, `prefix` or `regex`.
+
+A regular expression that the whole request path must match, with the syntax and limits of [`cache.rules[].match.regex`](#cache-rules-match-regex). `.*\.html` does not match a directory request such as `/docs/` ([which path a rule matches](../architecture/cache-control.md#which-path-a-rule-matches)).
 
 ### `cache_control.rules[].value`
 

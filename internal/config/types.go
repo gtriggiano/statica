@@ -2,6 +2,7 @@
 package config
 
 import (
+	"regexp"
 	"time"
 
 	"github.com/gtriggiano/statica/internal/redirect"
@@ -133,9 +134,14 @@ const (
 	RequestDirectivesIgnore         = "ignore"
 )
 
+// Match selects paths with exactly one of Exact, Prefix or Regex. Validation
+// compiles Regex, anchored at both ends, into re; the compiled expression is
+// shared by copies of the Match and never appears in YAML output.
 type Match struct {
 	Exact  string `yaml:"exact,omitempty"`
 	Prefix string `yaml:"prefix,omitempty"`
+	Regex  string `yaml:"regex,omitempty"`
+	re     *regexp.Regexp
 }
 
 type CacheRule struct {

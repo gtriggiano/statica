@@ -232,6 +232,123 @@ cache_control:
 	}
 }
 
+func TestMatchRegexValidation(t *testing.T) {
+	const marker = "secret-pattern-marker"
+	long := marker + strings.Repeat("a", 1025-len(marker))
+	for _, rules := range []struct{ path, before, after string }{
+		{"cache.rules[0]", "cache: {rules: [{match: ", ", ttl: 1m}]}"},
+		{"cache_control.rules[0]", "cache_control: {rules: [{match: ", ", value: no-cache}]}"},
+	} {
+		for _, tt := range []struct{ name, match, path string }{
+			{"none", "{}", ".match"},
+			{"exactregex", "{exact: /a.html, regex: '" + marker + "'}", ".match"},
+			{"prefixregex", "{prefix: /a/, regex: '" + marker + "'}", ".match"},
+			{"all", "{exact: /a.html, prefix: /a/, regex: '" + marker + "'}", ".match"},
+			{"empty", "{regex: ''}", ".match.regex"},
+			{"invalid", "{regex: '" + marker + "('}", ".match.regex"},
+			{"closesanchor", "{regex: '" + marker + ")|(.*'}", ".match.regex"},
+			{"overlength", "{regex: '" + long + "'}", ".match.regex"},
+		} {
+			t.Run(rules.path+"/"+tt.name, func(t *testing.T) {
+				_, err := Parse([]byte(minimal+rules.before+tt.match+rules.after), noEnv)
+				var ce *Error
+				if !errors.As(err, &ce) || ce.Path != rules.path+tt.path {
+					t.Fatalf("want %s, got %v", rules.path+tt.path, err)
+				}
+				if strings.Contains(err.Error(), marker) {
+					t.Fatalf("error repeats the pattern: %v", err)
+				}
+			})
+		}
+		parseOK(t, minimal+rules.before+"{regex: '"+long[:1024]+"'}"+rules.after)
+	}
+}
+
+func TestMatchRegexRules(t *testing.T) {
+	c := parseOK(t, minimal+`cache:
+  rules:
+    - match: {exact: /assets/app.js}
+      ttl: 1m
+    - match: {regex: '.*\.js'}
+      ttl: 1h
+    - match: {prefix: /assets/}
+      ttl: 2h
+    - match: {regex: '(?i)/media/.*\.jpg'}
+      enabled: false
+cache_control:
+  rules:
+    - match: {regex: '.*/|.*\.html'}
+      value: no-cache
+    - match: {prefix: /assets/}
+      value: public, max-age=60
+    - match: {regex: '/assets/.+\.[0-9a-f]{8}\.js'}
+      value: public, max-age=31536000, immutable
+`)
+	for _, tc := range []struct {
+		path    string
+		ttl     time.Duration
+		enabled bool
+	}{
+		{"/assets/app.js", time.Minute, true},        // an earlier exact rule wins
+		{"/lib/app.js", time.Hour, true},             // the regex
+		{"/assets/other.js", time.Hour, true},        // a regex before a prefix wins
+		{"/assets/other.js.br", 2 * time.Hour, true}, // the variant keeps its suffix
+		{"/assets/app.json", 2 * time.Hour, true},    // anchored at the end
+		{"/lib/app.json", 5 * time.Minute, true},
+		{"/lib/app.js/x", 5 * time.Minute, true},
+		{"/media/photo.JPG", 5 * time.Minute, false}, // (?i)
+		{"/other/media/photo.jpg", 5 * time.Minute, true},
+	} {
+		if p := c.Cache.PolicyFor(tc.path); p.TTL != tc.ttl || p.Enabled != tc.enabled {
+			t.Errorf("cache %s: ttl %v enabled %v, want %v %v", tc.path, p.TTL, p.Enabled, tc.ttl, tc.enabled)
+		}
+	}
+	for path, want := range map[string]string{
+		"/":                         "no-cache",
+		"/guide/":                   "no-cache",
+		"/guide/index.html":         "no-cache",
+		"/assets/":                  "no-cache", // the regex comes first
+		"/guide":                    "auto",
+		"/page.html.bak":            "auto", // anchored at the end
+		"/assets/app.3f9a2c1b.js":   "public, max-age=60",
+		"/x/assets/app.3f9a2c1b.js": "auto", // anchored at the start
+	} {
+		if got := c.CacheControl.ValueFor(path); got != want {
+			t.Errorf("cache_control %s: %q, want %q", path, got, want)
+		}
+	}
+}
+
+func TestMatchRegexPrint(t *testing.T) {
+	c := parseOK(t, minimal+"cache:\n  rules:\n    - match: {regex: '.*\\.js(?:\\.br|\\.gz)?'}\n      ttl: 1h\ncache_control:\n  rules:\n    - match: {regex: '.*/|.*\\.html'}\n      value: no-cache\n")
+	out, err := c.MarshalRedacted()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var printed struct {
+		Cache struct {
+			Rules []struct{ Match map[string]any }
+		}
+		CacheControl struct {
+			Rules []struct{ Match map[string]any }
+		} `yaml:"cache_control"`
+	}
+	if err := yaml.Unmarshal(out, &printed); err != nil {
+		t.Fatal(err)
+	}
+	if len(printed.Cache.Rules) != 1 || len(printed.Cache.Rules[0].Match) != 1 || printed.Cache.Rules[0].Match["regex"] != `.*\.js(?:\.br|\.gz)?` ||
+		len(printed.CacheControl.Rules) != 1 || len(printed.CacheControl.Rules[0].Match) != 1 || printed.CacheControl.Rules[0].Match["regex"] != `.*/|.*\.html` {
+		t.Fatalf("printed rules differ from the input: %s", out)
+	}
+	again, err := Parse(out, noEnv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Cache.PolicyFor("/app.js.br").TTL != time.Hour || again.CacheControl.ValueFor("/guide/") != "no-cache" {
+		t.Fatal("printed configuration loads other rules")
+	}
+}
+
 func TestCacheModeValues(t *testing.T) {
 	for _, mode := range []string{"ceiling", "floor", "fallback", "fixed"} {
 		c := parseOK(t, minimal+"cache:\n  ttl_mode: "+mode+"\n  rules:\n    - match: {prefix: /a/}\n      ttl_mode: "+mode+"\n")
