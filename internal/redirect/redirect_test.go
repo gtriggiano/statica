@@ -181,6 +181,7 @@ func TestCompilationRejectsInvalidRulesWithoutLeakingValues(t *testing.T) {
 		{"orphan constraint", func(r *Rule) { r.Captures = map[string]Capture{"SECRET": {Pattern: ".*"}} }},
 		{"invalid regex", func(r *Rule) { r.Captures = map[string]Capture{"id": {Pattern: "SECRET("}} }},
 		{"empty regex", func(r *Rule) { r.Captures = map[string]Capture{"id": {Pattern: ""}} }},
+		{"regex closing its anchors", func(r *Rule) { r.Captures = map[string]Capture{"id": {Pattern: "SECRET)|(.*"}} }},
 		{"userinfo", func(r *Rule) { r.To = "https://SECRET@example.com/new" }},
 		{"http origin", func(r *Rule) { r.To = "http://SECRET.example/new" }},
 		{"scheme relative", func(r *Rule) { r.To = "//SECRET.example/new" }},

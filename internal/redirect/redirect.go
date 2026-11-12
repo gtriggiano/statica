@@ -146,6 +146,11 @@ func Compile(rules []Rule) (*Set, error) {
 			if pattern == "" {
 				return nil, configError(i, "captures.pattern", "pattern must not be empty")
 			}
+			// The pattern must parse on its own, so that it cannot close the
+			// anchoring group: a)|(b would otherwise match unanchored.
+			if _, err := regexp.Compile(pattern); err != nil {
+				return nil, configError(i, "captures.pattern", "invalid full-string RE2 pattern")
+			}
 			re, err := regexp.Compile(`\A(?:` + pattern + `)\z`)
 			if err != nil {
 				return nil, configError(i, "captures.pattern", "invalid full-string RE2 pattern")
