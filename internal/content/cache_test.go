@@ -528,6 +528,29 @@ func TestCachedAgeAndProjection(t *testing.T) {
 			t.Fatalf("rule projection %v", w.header)
 		}
 	})
+	t.Run("ttl_mode and request_directives keep the headers", func(t *testing.T) {
+		cfg := cachedConfig(t, func(c *config.Config) {
+			c.Cache.TTLMode, c.Cache.RequestDirectives = config.TTLModeFixed, config.RequestDirectivesIgnore
+		})
+		origin := newMemOrigin()
+		origin.set("page.txt", memObject{"page", fixtureMeta(`"p"`, "no-cache", 120)})
+		clock := &testClock{t: time.Now()}
+		c, _ := newCache(t, cfg, origin, clock)
+		var o Observation
+		h := boundary(t, cfg, origin, WithCache(c), WithObserver(func(v Observation) { o = v }))
+		serve(h, "GET", "http://example.org/page.txt", nil)
+		origin.take()
+		clock.Advance(30 * time.Second)
+		// A client no-cache is ignored, the origin's no-cache is forwarded, and
+		// Age is the RFC 9111 age: the origin's 120 seconds plus the residence.
+		w := serve(h, "GET", "http://example.org/page.txt", http.Header{"Cache-Control": {"no-cache"}})
+		if w.status != 200 || w.body != "page" || w.header.Get("Cache-Control") != "no-cache" || w.header.Get("Age") != "150" || o.CacheOutcome != cache.OutcomeHit {
+			t.Fatalf("%d %v %+v", w.status, w.header, o)
+		}
+		if calls := origin.take(); len(calls) != 0 {
+			t.Fatalf("calls %q", calls)
+		}
+	})
 	t.Run("stale-if-error reports the true age", func(t *testing.T) {
 		cfg := cachedConfig(t, func(c *config.Config) { c.Cache.StaleIfError = time.Minute })
 		origin := newMemOrigin()

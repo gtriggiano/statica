@@ -208,7 +208,7 @@ statica reads these request headers:
 | `Accept` | Eligibility for the SPA fallback. |
 | `If-Match`, `If-None-Match`, `If-Modified-Since`, `If-Unmodified-Since` | Preconditions. |
 | `Range`, `If-Range` | Byte ranges, on `GET` only. |
-| `Cache-Control` | The directives `no-store`, `no-cache` and `max-age`, for the memory cache, when it is enabled. |
+| `Cache-Control` | The directives `no-store`, `no-cache` and `max-age`, for the memory cache, when it is enabled and [`cache.request_directives`](./configuration.md#cache-request-directives) applies them. |
 | `Content-Length`, `Transfer-Encoding` | Detecting a request body on `GET` and `HEAD`. |
 
 statica ignores every other request header, including:

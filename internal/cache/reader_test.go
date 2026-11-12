@@ -217,6 +217,40 @@ func TestReaderCarriesRequestDirectives(t *testing.T) {
 	h.settle()
 }
 
+func TestReaderRevalidationOverridesRequestDirectives(t *testing.T) {
+	h := newHarness(t, withConfig(func(c *config.Cache) { c.RequestDirectives = config.RequestDirectivesIgnore }))
+	r := NewReader(h.c)
+	m := objMeta(`"v1"`, "max-age=60", 5)
+	h.prime("site/a", m, "hello")
+	h.origin.setGet(func(context.Context, string, int, storage.ReadOptions) (*storage.Object, error) {
+		return nil, notModifiedErr(m)
+	})
+	h.origin.setHead(func(context.Context, string) (storage.Metadata, error) { return m, nil })
+	ctx := WithRequest(context.Background(), httpcache.Request{NoCache: true})
+	obj, err := r.Get(ctx, "site/a", storage.ReadOptions{})
+	if err != nil || read(t, obj) != "hello" {
+		t.Fatal(err)
+	}
+	if rec, ok := LastLookup(ctx, "site/a"); !ok || rec.Outcome != OutcomeHit {
+		t.Fatalf("ignored no-cache recorded %+v", rec)
+	}
+	ctx = WithRevalidation(context.Background(), httpcache.Request{})
+	obj, err = r.Get(ctx, "site/a", storage.ReadOptions{})
+	if err != nil || read(t, obj) != "hello" {
+		t.Fatal(err)
+	}
+	if _, err := r.Head(ctx, "site/a"); err != nil {
+		t.Fatal(err)
+	}
+	if rs := Lookups(ctx); len(rs) != 2 || rs[0].Outcome != OutcomeRevalidated || rs[1].Outcome != OutcomeRevalidated {
+		t.Fatalf("statica's revalidation recorded %+v", rs)
+	}
+	if gets, heads := h.origin.calls(); len(gets) != 2 || heads != 1 {
+		t.Fatalf("origin gets %d heads %d", len(gets), heads)
+	}
+	h.settle()
+}
+
 func TestBodyCloseRacesReads(t *testing.T) {
 	h := newHarness(t)
 	r := NewReader(h.c)

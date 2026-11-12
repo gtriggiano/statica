@@ -44,7 +44,8 @@ func (r *reader) Get(ctx context.Context, key string, opts storage.ReadOptions) 
 		return nil, &storage.Error{Kind: storage.Unsupported, Size: -1}
 	}
 	s := scopeOf(ctx)
-	l, err := r.c.Get(ctx, key, s.request())
+	req, revalidate := s.request()
+	l, err := r.c.get(ctx, key, req, revalidate)
 	s.record(key, l)
 	if err != nil {
 		l.Release()
@@ -62,7 +63,8 @@ func (r *reader) Get(ctx context.Context, key string, opts storage.ReadOptions) 
 
 func (r *reader) Head(ctx context.Context, key string) (storage.Metadata, error) {
 	s := scopeOf(ctx)
-	l, err := r.c.Head(ctx, key, s.request())
+	req, revalidate := s.request()
+	l, err := r.c.head(ctx, key, req, revalidate)
 	s.record(key, l)
 	defer l.Release()
 	switch {
@@ -159,19 +161,34 @@ type scopeKey struct{}
 
 // scope is one request's directives and lookup records.
 type scope struct {
-	req     httpcache.Request
-	mu      sync.Mutex
-	records []Record
-	inline  [4]Record
+	req        httpcache.Request
+	revalidate bool
+	mu         sync.Mutex
+	records    []Record
+	inline     [4]Record
 }
 
 // WithRequest scopes ctx to one request whose Cache-Control directives are
 // req, typically httpcache.RequestDirectives of its header. A Reader reads
 // the directives from the context, without which a lookup carries none and
 // records nothing, and records the classification of every lookup it makes,
-// in order, for Lookups and LastLookup.
+// in order, for Lookups and LastLookup. Each lookup applies the directives
+// its object's request_directives allow.
 func WithRequest(ctx context.Context, req httpcache.Request) context.Context {
-	s := &scope{req: req}
+	return withScope(ctx, &scope{req: req})
+}
+
+// WithRevalidation is WithRequest for a request whose every lookup must
+// not reuse memory without asking the origin: each one applies no-cache on
+// top of the directives of req that the object's request_directives allows,
+// so it revalidates, or bypasses the cache when an applied no-store says so.
+// It serves statica's own retry after an object changed during its
+// selection, which a client directive policy must not turn off.
+func WithRevalidation(ctx context.Context, req httpcache.Request) context.Context {
+	return withScope(ctx, &scope{req: req, revalidate: true})
+}
+
+func withScope(ctx context.Context, s *scope) context.Context {
 	s.records = s.inline[:0]
 	return context.WithValue(ctx, scopeKey{}, s)
 }
@@ -181,11 +198,11 @@ func scopeOf(ctx context.Context) *scope {
 	return s
 }
 
-func (s *scope) request() httpcache.Request {
+func (s *scope) request() (req httpcache.Request, revalidate bool) {
 	if s == nil {
-		return httpcache.Request{}
+		return httpcache.Request{}, false
 	}
-	return s.req
+	return s.req, s.revalidate
 }
 
 func (s *scope) record(key string, l *Lookup) {

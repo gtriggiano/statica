@@ -61,6 +61,8 @@ With `auto`, you can set the policy when you upload each object instead, with th
 - `no-cache` makes statica revalidate the object with the origin on every use;
 - `no-store` or `private` keeps the object out of statica's memory.
 
+These are the effects with the default [`cache.ttl_mode`](../reference/configuration.md#cache-ttl-mode), `ceiling`; the other modes let the object's lifetime extend its TTL or make statica ignore it ([lifetime](../architecture/memory-cache.md#lifetime)). In every mode, the object's `Cache-Control` still reaches clients.
+
 Every variant of a [precompressed file](./precompressed-files.md) carries its own metadata, so give them all the same `Cache-Control`.
 
 ## Tune statica's memory separately

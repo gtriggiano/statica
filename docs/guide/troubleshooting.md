@@ -200,7 +200,7 @@ A missing health key is reported as `ambiguous_not_found` on providers that answ
 
 **Likely causes.**
 
-1. **A fresh memory cache entry.** statica serves a fresh entry without asking the origin, for up to [`cache.ttl`](../reference/configuration.md#cache-ttl) (`5m`) or the TTL of a matching rule.
+1. **A fresh memory cache entry.** statica serves a fresh entry without asking the origin, for up to [`cache.ttl`](../reference/configuration.md#cache-ttl) (`5m`) or the TTL of a matching rule, or longer when `cache.ttl_mode` lets the origin's lifetime extend it ([lifetime](../architecture/memory-cache.md#lifetime)).
 2. **A negative entry.** A URL requested before its object was published stays 404 for up to [`cache.negative_ttl`](../reference/configuration.md#cache-negative-ttl) (`5s`) ([negative entries](../architecture/memory-cache.md#negative-entries)).
 3. **Browser or CDN caching.** With `cache_control.default: auto`, an object without its own cache metadata is sent with `Cache-Control: max-age=<ttl>`, so downstream caches keep it too ([Cache-Control and Age](../architecture/cache-control.md)).
 4. **A new publication prefix.** A changed `s3.prefix` takes effect only when the instance restarts.
@@ -210,6 +210,8 @@ A missing health key is reported as `ambiguous_not_found` on providers that answ
 ```sh
 curl -sS -H 'Cache-Control: no-cache' https://www.example.com/
 ```
+
+This does not work for objects whose [`cache.request_directives`](../reference/configuration.md#cache-request-directives) is `ignore`: their entries change only when they expire.
 
 **Fix.** Give HTML a short TTL with `cache.rules` and `cache_control` rules, and long TTLs only to assets whose names change with their content ([Control browser and CDN caching](./browser-caching.md)). To drop every entry at once, restart the instance.
 

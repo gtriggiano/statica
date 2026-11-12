@@ -685,8 +685,8 @@ func (a *app) logStartup(public, adminAddr net.Addr) {
 			"cache_max_bytes", int64(k.MaxBytes), "cache_max_entries", k.MaxEntries,
 			"cache_max_object_bytes", int64(k.MaxObjectBytes), "cache_max_fill_bytes", int64(k.MaxFillBytes),
 			"cache_max_concurrent_fills", k.MaxConcurrentFills, "cache_max_waiters_per_key", k.MaxWaitersPerKey,
-			"cache_fill_timeout", k.FillTimeout, "cache_ttl", k.TTL, "cache_negative_ttl", k.NegativeTTL,
-			"cache_stale_if_error", k.StaleIfError, "cache_rules", len(k.Rules),
+			"cache_fill_timeout", k.FillTimeout, "cache_ttl", k.TTL, "cache_ttl_mode", k.TTLMode, "cache_negative_ttl", k.NegativeTTL,
+			"cache_stale_if_error", k.StaleIfError, "cache_request_directives", k.RequestDirectives, "cache_rules", len(k.Rules),
 		)
 	}
 	attrs = append(attrs, "compression", c.Compression.Mode)

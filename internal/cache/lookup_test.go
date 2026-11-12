@@ -3,6 +3,7 @@ package cache
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"sync/atomic"
@@ -768,6 +769,207 @@ func TestRequestDirectives(t *testing.T) {
 		l.Release()
 		h.settle()
 	})
+}
+
+func TestTTLModeFixedSkipsTheOriginUntilTheTTL(t *testing.T) {
+	fixed := config.TTLModeFixed
+	h := newHarness(t, withConfig(func(c *config.Cache) {
+		c.Rules = []config.CacheRule{{Match: config.Match{Prefix: "/draft/"}, TTLMode: &fixed}}
+	}))
+	m := objMeta(`"v1"`, "no-cache", 5)
+	h.prime("site/draft/a", m, "hello")
+	h.prime("site/b", m, "hello")
+	h.origin.setGet(func(_ context.Context, key string, _ int, opts storage.ReadOptions) (*storage.Object, error) {
+		if opts.IfNoneMatch != `"v1"` {
+			t.Errorf("%s: If-None-Match %q", key, opts.IfNoneMatch)
+		}
+		return nil, notModifiedErr(m)
+	})
+	h.clock.Advance(4 * time.Minute)
+	before := h.origin.getCount()
+	l := h.mustGet("site/draft/a", httpcache.Request{}, OutcomeHit)
+	l.Release()
+	hl, err := h.c.Head(context.Background(), "site/draft/a", httpcache.Request{})
+	if err != nil || hl.Outcome != OutcomeMetadataHit {
+		t.Fatalf("HEAD = %s, %v", hl.Outcome, err)
+	}
+	hl.Release()
+	if gets, heads := h.origin.calls(); len(gets) != before || heads != 0 {
+		t.Fatalf("a fresh entry under ttl_mode fixed read the origin: %d gets, %d heads", len(gets)-before, heads)
+	}
+	// Outside the rule, ttl_mode ceiling keeps the origin's no-cache.
+	l = h.mustGet("site/b", httpcache.Request{}, OutcomeRevalidated)
+	l.Release()
+	// The TTL counts from the response: it is spent five minutes after the
+	// prime, and the revalidation starts it again.
+	h.clock.Advance(time.Minute)
+	l = h.mustGet("site/draft/a", httpcache.Request{}, OutcomeRevalidated)
+	l.Release()
+	h.clock.Advance(4 * time.Minute)
+	l = h.mustGet("site/draft/a", httpcache.Request{}, OutcomeHit)
+	l.Release()
+	if expired := h.c.StoreStats().Expirations[KindBody]; expired != 1 {
+		t.Errorf("%d body expirations, want 1", expired)
+	}
+	h.settle()
+}
+
+func TestOriginTTLModesLetTheOriginExtendTheTTL(t *testing.T) {
+	for _, tc := range []struct {
+		mode, cacheControl string
+		hitUntil           time.Duration // the age up to which a GET is a hit
+	}{
+		{config.TTLModeFloor, "no-cache", 5 * time.Minute},       // the TTL is a floor
+		{config.TTLModeFloor, "max-age=3600", time.Hour},         // the origin extends it
+		{config.TTLModeFallback, "max-age=3600", time.Hour},      // the origin decides
+		{config.TTLModeFallback, "max-age=60", time.Minute},      // in both directions
+		{config.TTLModeCeiling, "max-age=3600", 5 * time.Minute}, // the default caps the origin
+	} {
+		t.Run(tc.mode+" "+tc.cacheControl, func(t *testing.T) {
+			mode := tc.mode
+			h := newHarness(t, withConfig(func(c *config.Cache) { c.TTLMode = mode }))
+			m := objMeta(`"v1"`, tc.cacheControl, 5)
+			h.prime("site/a", m, "hello")
+			h.origin.setGet(func(context.Context, string, int, storage.ReadOptions) (*storage.Object, error) {
+				return nil, notModifiedErr(m)
+			})
+			h.clock.Advance(tc.hitUntil - time.Second)
+			l := h.mustGet("site/a", httpcache.Request{}, OutcomeHit)
+			l.Release()
+			h.clock.Advance(time.Second)
+			l = h.mustGet("site/a", httpcache.Request{}, OutcomeRevalidated)
+			l.Release()
+			h.settle()
+		})
+	}
+}
+
+func TestRequestDirectivesPolicy(t *testing.T) {
+	ignore, revalidate := config.RequestDirectivesIgnore, config.RequestDirectivesRevalidateOnly
+	h := newHarness(t, withConfig(func(c *config.Cache) {
+		c.Rules = []config.CacheRule{
+			{Match: config.Match{Prefix: "/ignore/"}, RequestDirectives: &ignore},
+			{Match: config.Match{Prefix: "/revalidate/"}, RequestDirectives: &revalidate},
+		}
+	}))
+	m := objMeta(`"v1"`, "", 5)
+	h.prime("site/ignore/a", m, "hello")
+	h.prime("site/revalidate/a", m, "hello")
+	h.origin.setGet(func(_ context.Context, _ string, _ int, opts storage.ReadOptions) (*storage.Object, error) {
+		if opts.IfNoneMatch != `"v1"` {
+			t.Errorf("If-None-Match %q", opts.IfNoneMatch)
+		}
+		return nil, notModifiedErr(m)
+	})
+	all := httpcache.Request{NoStore: true, NoCache: true}
+	before := h.origin.getCount()
+	for _, req := range []httpcache.Request{all, {NoStore: true}, {NoCache: true}, maxAge(0)} {
+		l := h.mustGet("site/ignore/a", req, OutcomeHit)
+		l.Release()
+		hl, err := h.c.Head(context.Background(), "site/ignore/a", req)
+		if err != nil || hl.Outcome != OutcomeMetadataHit {
+			t.Fatalf("%+v: HEAD = %s, %v", req, hl.Outcome, err)
+		}
+		hl.Release()
+	}
+	if gets, heads := h.origin.calls(); len(gets) != before || heads != 0 {
+		t.Fatalf("ignored directives read the origin: %d gets, %d heads", len(gets)-before, heads)
+	}
+	// revalidate_only: no-store alone no longer bypasses, the others still revalidate.
+	l := h.mustGet("site/revalidate/a", httpcache.Request{NoStore: true}, OutcomeHit)
+	l.Release()
+	l = h.mustGet("site/revalidate/a", all, OutcomeRevalidated)
+	l.Release()
+	l = h.mustGet("site/revalidate/a", maxAge(0), OutcomeRevalidated)
+	l.Release()
+	hl, err := h.c.Head(context.Background(), "site/revalidate/a", httpcache.Request{NoStore: true})
+	if err != nil || hl.Outcome != OutcomeMetadataHit {
+		t.Fatalf("revalidate_only: HEAD with no-store = %s, %v", hl.Outcome, err)
+	}
+	hl.Release()
+	h.origin.setHead(func(context.Context, string) (storage.Metadata, error) { return m, nil })
+	hl, err = h.c.Head(context.Background(), "site/revalidate/a", httpcache.Request{NoCache: true})
+	if err != nil || hl.Outcome != OutcomeRevalidated {
+		t.Fatalf("revalidate_only: HEAD with no-cache = %s, %v", hl.Outcome, err)
+	}
+	hl.Release()
+	if st := h.c.Stats(); st.Bypasses[ReasonRequestNoStore] != 0 || h.origin.getCount() != before+2 {
+		t.Fatalf("bypasses %v, %d origin gets", st.Bypasses, h.origin.getCount()-before)
+	}
+	if _, heads := h.origin.calls(); heads != 1 {
+		t.Fatalf("%d origin heads, want 1", heads)
+	}
+	// A stale entry under ignore is still revalidated.
+	h.clock.Advance(5 * time.Minute)
+	l = h.mustGet("site/ignore/a", httpcache.Request{}, OutcomeRevalidated)
+	l.Release()
+	h.settle()
+}
+
+// A directive that request_directives drops no longer refuses stale service,
+// while statica's own revalidation still does.
+func TestDroppedDirectivesAllowStaleIfError(t *testing.T) {
+	outage := originErr(storage.Unavailable)
+	for _, tc := range []struct {
+		directives string
+		revalidate bool
+		stale      bool
+	}{
+		{config.RequestDirectivesHonor, false, false},
+		{config.RequestDirectivesRevalidateOnly, false, false},
+		{config.RequestDirectivesIgnore, false, true},
+		{config.RequestDirectivesIgnore, true, false},
+	} {
+		t.Run(fmt.Sprintf("%s revalidate=%t", tc.directives, tc.revalidate), func(t *testing.T) {
+			directives := tc.directives
+			h := newHarness(t, withConfig(func(c *config.Cache) { c.StaleIfError = time.Minute; c.RequestDirectives = directives }))
+			h.prime("site/a", objMeta(`"v1"`, "", 5), "hello")
+			h.clock.Advance(5*time.Minute + time.Second)
+			h.origin.setGet(func(context.Context, string, int, storage.ReadOptions) (*storage.Object, error) { return nil, outage })
+			h.origin.setHead(func(context.Context, string) (storage.Metadata, error) { return storage.Metadata{}, outage })
+			req := httpcache.Request{NoCache: true}
+			for name, lookup := range map[string]func() (*Lookup, error){
+				"GET":  func() (*Lookup, error) { return h.c.get(context.Background(), "site/a", req, tc.revalidate) },
+				"HEAD": func() (*Lookup, error) { return h.c.head(context.Background(), "site/a", req, tc.revalidate) },
+			} {
+				l, err := lookup()
+				switch {
+				case tc.stale && (err != nil || l.Outcome != OutcomeStale):
+					t.Errorf("%s = %s, %v; want stale", name, l.Outcome, err)
+				case !tc.stale && (!storage.IsKind(err, storage.Unavailable) || l.Outcome != OutcomeMiss):
+					t.Errorf("%s = %s, %v; want the origin error", name, l.Outcome, err)
+				}
+				l.Release()
+			}
+			h.settle()
+		})
+	}
+}
+
+func TestIgnoredDirectivesKeepNegativeHits(t *testing.T) {
+	h := newHarness(t, withConfig(func(c *config.Cache) { c.RequestDirectives = config.RequestDirectivesIgnore }))
+	h.origin.setGet(func(context.Context, string, int, storage.ReadOptions) (*storage.Object, error) {
+		return nil, originErr(storage.NotFound)
+	})
+	l, err := h.get("site/a", httpcache.Request{})
+	if !storage.IsKind(err, storage.NotFound) || l.Outcome != OutcomeMiss {
+		t.Fatalf("got %s, %v", l.Outcome, err)
+	}
+	l.Release()
+	h.origin.setGet(nil) // any further origin read fails the test
+	for _, req := range []httpcache.Request{{NoCache: true}, maxAge(0), {NoStore: true}} {
+		l, err := h.get("site/a", req)
+		if !storage.IsKind(err, storage.NotFound) || l.Outcome != OutcomeNegativeHit {
+			t.Errorf("%+v: GET = %s, %v", req, l.Outcome, err)
+		}
+		l.Release()
+		hl, err := h.c.Head(context.Background(), "site/a", req)
+		if !storage.IsKind(err, storage.NotFound) || hl.Outcome != OutcomeNegativeHit {
+			t.Errorf("%+v: HEAD = %s, %v", req, hl.Outcome, err)
+		}
+		hl.Release()
+	}
+	h.settle()
 }
 
 func TestLifetimeCancelsFlights(t *testing.T) {

@@ -466,7 +466,7 @@ Asks the origin for object checksums (`x-amz-checksum-mode: ENABLED`) and valida
 **Type:** mapping\
 **Default:** `{}`
 
-The [memory cache](../architecture/memory-cache.md). Its limits are validated even when the cache is disabled. Some responses are never stored or reused, whatever this block says: an object whose origin metadata is malformed or whose origin `Cache-Control` contains `no-store` or `private` is never stored; a request with `Cache-Control: no-store` bypasses the cache; a request `no-cache` or `max-age` can force revalidation; and an origin `no-cache` gives a stored object a zero lifetime ([freshness](../architecture/memory-cache.md#freshness)). To size and tune it, see [Tune the memory cache](../guide/cache-tuning.md).
+The [memory cache](../architecture/memory-cache.md). Its limits are validated even when the cache is disabled. An object whose origin metadata is malformed or whose origin `Cache-Control` contains `no-store` or `private` is never stored, whatever this block says. With the defaults, an origin `no-cache` gives a stored object a zero lifetime, a request with `Cache-Control: no-store` bypasses the cache, and a request `no-cache` or `max-age` can force revalidation: `ttl_mode` and `request_directives` change that ([freshness](../architecture/memory-cache.md#freshness)). To size and tune it, see [Tune the memory cache](../guide/cache-tuning.md).
 
 ```yaml [config.yaml]
 cache:
@@ -539,7 +539,25 @@ Each request also stops waiting at its own deadline (`server.response_header_tim
 **Type:** duration\
 **Default:** `5m`
 
-Zero or positive. How long a stored object stays fresh. An origin `Cache-Control` (`s-maxage`, otherwise `max-age`) or `Expires` can shorten it, never extend it. A stale entry is revalidated with the origin before it is used again. `0s` stores objects but revalidates them on every use.
+Zero or positive. How long a stored object stays fresh. `cache.ttl_mode` decides how it combines with the freshness lifetime that the origin assigns: with the default, an origin `Cache-Control` (`s-maxage`, otherwise `max-age`) or `Expires` can shorten it, never extend it. A stale entry is revalidated with the origin before it is used again. `0s` stores objects but revalidates them on every use, unless `ttl_mode` lets the origin's lifetime apply.
+
+### `cache.ttl_mode`
+
+**Type:** string\
+**Default:** `ceiling`
+
+`ceiling`, `floor`, `fallback` or `fixed`. The role of `cache.ttl` when the origin assigns the object a freshness lifetime: its `s-maxage`, else `max-age`, else `Expires` minus `Date`, and zero with `no-cache` ([lifetime](../architecture/memory-cache.md#lifetime)). When the origin assigns none, every value uses the TTL.
+
+| Value | Lifetime when the origin assigns one |
+| --- | --- |
+| `ceiling` | The shorter of the two: the TTL is an upper bound, so the origin can shorten it, never extend it. |
+| `floor` | The longer of the two: the TTL is a lower bound, so the origin can extend it, never shorten it. |
+| `fallback` | The origin's: the TTL applies only when the origin assigns none. |
+| `fixed` | The TTL, whatever the origin says. |
+
+`fixed` ignores the origin's freshness altogether: its `must-revalidate`, `proxy-revalidate`, `no-cache` and `s-maxage` no longer prevent `cache.stale_if_error`, and the entry stays fresh for the TTL from the moment statica receives the origin's response, whatever the origin's `Date` and `Age` say.
+
+No value lets statica store an object whose origin metadata is malformed or contains `no-store` or `private`. The mode applies to the memory cache only: the `Cache-Control` that clients receive follows [`cache_control`](#cache-control).
 
 ### `cache.negative_ttl`
 
@@ -553,14 +571,27 @@ Zero or positive. How long statica remembers that an object does not exist (a ne
 **Type:** duration\
 **Default:** `0s`
 
-Zero or positive. How long after it expires an entry may still be served when refreshing it fails because the origin timed out (`cache.fill_timeout` included), kept throttling, or was unavailable. Unavailability includes server errors, network errors, missing credentials and provider errors without a more specific class, such as `ExpiredToken` (400). A 403, credential errors answered with 403 included, a missing object, an invalid response and an error that carries a bucket, endpoint or credential code (`NoSuchBucket`, `AuthorizationHeaderMalformed`, `InvalidAccessKeyId`, …) never qualify, and neither does an object whose origin `Cache-Control` contains `must-revalidate`, `proxy-revalidate`, `no-cache` or `s-maxage`. A request whose own deadline passes while it waits for the origin gets 504 Gateway Timeout without a stale copy (see `cache.fill_timeout`). `0s` disables it ([stale-if-error](../architecture/memory-cache.md#stale-if-error)).
+Zero or positive. How long after it expires an entry may still be served when refreshing it fails because the origin timed out (`cache.fill_timeout` included), kept throttling, or was unavailable. Unavailability includes server errors, network errors, missing credentials and provider errors without a more specific class, such as `ExpiredToken` (400). A 403, credential errors answered with 403 included, a missing object, an invalid response and an error that carries a bucket, endpoint or credential code (`NoSuchBucket`, `AuthorizationHeaderMalformed`, `InvalidAccessKeyId`, …) never qualify, and neither does an object whose origin `Cache-Control` contains `must-revalidate`, `proxy-revalidate`, `no-cache` or `s-maxage`, unless its `cache.ttl_mode` is `fixed`. A request whose own deadline passes while it waits for the origin gets 504 Gateway Timeout without a stale copy (see `cache.fill_timeout`). `0s` disables it ([stale-if-error](../architecture/memory-cache.md#stale-if-error)).
+
+### `cache.request_directives`
+
+**Type:** string\
+**Default:** `honor`
+
+`honor`, `revalidate_only` or `ignore`. Which `Cache-Control` directives of a request the memory cache applies. Each of them can make statica read the origin ([request directives](../architecture/memory-cache.md#request-directives)):
+
+- `honor`: all of them. `no-store` bypasses the cache, and `no-cache` and `max-age` can make statica revalidate a fresh entry with the origin.
+- `revalidate_only`: a client can force a revalidation, never a bypass. `no-cache` and `max-age` apply; `no-store` is ignored.
+- `ignore`: none of them. A fresh entry is served without asking the origin, whatever the request says, so a client cannot refresh an entry with `Cache-Control: no-cache`.
+
+The directives never change the headers of the response.
 
 ### `cache.rules`
 
 **Type:** list of mappings\
 **Default:** none — every object uses the global values.
 
-Overrides of `enabled`, `ttl`, `negative_ttl` and `stale_if_error` for some objects. The first rule whose `match` matches the object path applies; the fields it omits keep the global value, not the value of a later rule.
+Overrides of `enabled`, `ttl`, `ttl_mode`, `negative_ttl`, `stale_if_error` and `request_directives` for some objects. The first rule whose `match` matches the object path applies; the fields it omits keep the global value, not the value of a later rule.
 
 The object path is `/` followed by the object key without `s3.prefix`. A request for `/docs/` uses `/docs/index.html`, and a precompressed variant keeps its suffix: `/app.js.br`. An `exact` rule for `/app.js` therefore does not cover `/app.js.br`; a `prefix` rule covers both.
 
@@ -614,6 +645,13 @@ An absolute path ending in `/`, with the same rules as `exact`. It matches the p
 
 Zero or positive. Replaces `cache.ttl` for the matching objects.
 
+### `cache.rules[].ttl_mode`
+
+**Type:** string\
+**Default:** none — inherits `cache.ttl_mode`.
+
+`ceiling`, `floor`, `fallback` or `fixed`. Replaces `cache.ttl_mode` for the matching objects.
+
 ### `cache.rules[].negative_ttl`
 
 **Type:** duration\
@@ -627,6 +665,13 @@ Zero or positive. Replaces `cache.negative_ttl` for the matching objects.
 **Default:** none — inherits `cache.stale_if_error`.
 
 Zero or positive. Replaces `cache.stale_if_error` for the matching objects.
+
+### `cache.rules[].request_directives`
+
+**Type:** string\
+**Default:** none — inherits `cache.request_directives`.
+
+`honor`, `revalidate_only` or `ignore`. Replaces `cache.request_directives` for the matching objects.
 
 ## `index`
 

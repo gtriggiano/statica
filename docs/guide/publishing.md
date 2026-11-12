@@ -69,7 +69,7 @@ Only an allowlist of each object's metadata reaches visitors ([origin metadata](
 | Metadata | What statica does with it |
 | --- | --- |
 | `Content-Type` | Sent as stored when it is a valid media type. When it is missing or invalid, statica picks a type from a [fixed table](../reference/http-responses.md#content-type) of common web extensions, such as `.html`, `.css`, `.js`, `.json`, `.svg`, `.png` and `.woff2`, and unknown extensions get `application/octet-stream`. |
-| `Cache-Control`, `Expires` | Forwarded to clients by default, and they can shorten how long statica keeps the object in memory. See [Control browser and CDN caching](./browser-caching.md). |
+| `Cache-Control`, `Expires` | Forwarded to clients by default, and combined with the TTL, as [`cache.ttl_mode`](../reference/configuration.md#cache-ttl-mode) decides, to set how long statica keeps the object in memory. See [Control browser and CDN caching](./browser-caching.md). |
 | `Content-Encoding` | Only `gzip` or `br`, for an object stored compressed. `identity` counts as none. Any other value makes the read fail with 502 Bad Gateway. |
 | `Content-Disposition` | Forwarded when well formed, for example `attachment; filename="report.pdf"` for a download. |
 | `Content-Language` | Forwarded when it is a list of language tags, such as `de` or `en-US`. |
