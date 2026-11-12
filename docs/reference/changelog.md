@@ -1,3 +1,8 @@
+---
+description: The changes of every statica release.
+llms: optional
+---
+
 ::: v-pre
 <!--@include: ../../CHANGELOG.md-->
 :::

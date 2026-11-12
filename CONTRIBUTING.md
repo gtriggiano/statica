@@ -22,7 +22,7 @@ The test suite needs no AWS credentials, Docker or S3 endpoint. The HTTP tests b
 
 ```text
 cmd/statica/         Command entry point
-internal/            Implementation packages (not a public Go API)
+internal/            Implementation packages (not a public Go API); see the code map below
 docs/                Documentation site: guide/, architecture/, reference/
 docs/examples/       Complete configuration examples, validated by the tests
 docs/scripts/        Link and diagram checks, and the assembly of the site with versions
@@ -31,8 +31,45 @@ docs/.vitepress/     Site configuration, navigation and theme
 .goreleaser.yaml     Release packaging: binaries, archives, checksums, SBOMs, image
 Dockerfile           Container image, built from the binaries GoReleaser compiles
 AGENTS.md            Instructions for AI coding agents; CLAUDE.md imports it for Claude Code
-.agents/skills/      Agent skills; .claude/skills/ links them for Claude Code
+.agents/skills/      Agent skills for contributors; .claude/skills/ links them for Claude Code
+skills/              Agent skills for users of statica, published by the documentation site
 ```
+
+### Code map
+
+Each package under `internal/` has one role. Read [the architecture overview](docs/architecture/index.md) before a change that crosses packages: it follows a request through the components below.
+
+| Package | Role | Explained in |
+| --- | --- | --- |
+| `cmd/statica/` | Entry point. | |
+| `internal/cli/` | Commands: `serve`, `config validate`, `config print`, `config check-origin`, `version`. | [CLI reference](docs/reference/cli.md) |
+| `internal/config/` | Loads and validates the YAML: `types.go` (fields, defaults), `parse.go`, `validate.go`. | [Configuration reference](docs/reference/configuration.md) |
+| `internal/app/` | Builds every component from a validated configuration, binds the listeners, drains on shutdown. | [Startup, readiness and shutdown](docs/architecture/lifecycle.md) |
+| `internal/httpserver/` | Public listener: admission, host allowlist, client IP and request ID, CORS, response writer. | [Request flow](docs/architecture/request-flow.md), [Security model](docs/architecture/security.md), [Timeouts](docs/architecture/timeouts.md) |
+| `internal/redirect/` | Compiled redirect rules. | [Request flow](docs/architecture/request-flow.md) |
+| `internal/site/` | Path validation, key confinement to the publication prefix, key resolution, precompressed variants. | [Request flow](docs/architecture/request-flow.md), [Precompressed variants](docs/architecture/precompressed-variants.md), [SPA fallback](docs/architecture/spa-fallback.md) |
+| `internal/content/` | Object responses: conditional requests, ranges, headers, streaming. | [Ranges and conditional requests](docs/architecture/ranges-and-conditionals.md) |
+| `internal/httpcache/` | RFC 9111 mechanics: `Cache-Control` grammar, freshness, age. | [Cache-Control and Age](docs/architecture/cache-control.md) |
+| `internal/cache/` | Bounded memory cache: store, lookup, shared fills, readers. | [Memory cache](docs/architecture/memory-cache.md) |
+| `internal/storage/` | Read-only origin interface; `internal/storage/s3/` is the AWS SDK v2 adapter. | [Access denied](docs/architecture/access-denied.md) |
+| `internal/telemetry/` | Per-request record and logfmt events. | [Log reference](docs/reference/logs.md) |
+| `internal/metrics/` | Prometheus metrics on a private registry. | [Metrics reference](docs/reference/metrics.md) |
+| `internal/admin/` | Admin listener (`/livez`, `/readyz`, `/metrics`) and the origin health worker. | [Admin endpoints](docs/reference/admin-endpoints.md) |
+| `internal/release/` | Tests only: version references in the documentation. | [Pages guarded by tests](#pages-guarded-by-tests) |
+| `internal/agentdocs/` | Tests only: consistency of `AGENTS.md`, `CLAUDE.md` and the skills. | [AI coding agents](#ai-coding-agents) |
+
+## Design rules
+
+These hold across the code base. A change that weakens one needs the maintainer's agreement first: open an issue before the pull request.
+
+- **The origin is read-only.** statica sends only `GetObject` and `HeadObject`. It never lists, writes or deletes objects.
+- **Keys stay inside the publication prefix.** `internal/site` validates paths and confines keys. It does no filesystem cleaning and no URL re-decoding.
+- **The `Host` never selects content.** It is used for admission and telemetry only: never in an S3 request, an object key or a cache entry.
+- **Configuration is immutable.** Everything is built and validated before any socket opens; there is no reload.
+- **Every resource has a configured ceiling, and statica refuses work instead of queueing it.** A new resource that clients can consume needs a limit.
+- **An origin failure never falls back** to an index, single-page-app or 404 object, and an origin 403 is a denial, never a missing object.
+- **No secrets or request data in errors.** Configuration errors never repeat configured values; values from `${ENV}` substitution are redacted. Redirect errors include no URL or captured values.
+- **`internal/` is not a public API.** The public interfaces are the configuration file, the CLI, documented HTTP behavior, the admin endpoints, metric names and labels, log events and fields, the container image and the release asset names. Changing one of them is a breaking change (see [Commit messages and pull request titles](#commit-messages-and-pull-request-titles)).
 
 ## Make targets
 
@@ -99,11 +136,12 @@ The documentation is a [VitePress](https://vitepress.dev/) site in `docs/`.
 
 `make check` runs Go tests that read the documentation:
 
-- **Configuration reference.** Every configuration field has its own heading in `docs/reference/configuration.md`, the exact field path in backticks, followed by its `**Type:**` and `**Default:**` lines. The test fails on a missing or unknown field, and on a documented type or default that differs from the code.
+- **Configuration reference.** Every configuration field has its own heading in `docs/reference/configuration.md`, the exact field path in backticks, followed by its `**Type:**` and `**Default:**` lines and, when validation narrows the type, an `**Allowed:**` line. The default is a YAML value in backticks or one of `required`, `unset — <what statica does then>`, ``inherits `<field>` `` and ``derived from `<field>` ``. The allowed line starts, where it applies, with a form that the test checks against the code: a list of values (`` `off` or `precompressed` ``), a range (`` `1` to `3` ``), `positive`, `zero or positive` or `nonempty`; other text follows after `; `. Each top-level section starts with a table of its fields that repeats these lines. The test fails on a missing or unknown field, on a documented type, default or allowed form that differs from the code, on a list of values that differs from the enumeration of the configuration schema, on a string or list that rejects its empty value and has no allowed line, and on a table that differs from the entries. Text after `; `, an allowed line in free text and the prose are not checked, except for the rules between two fields that the test names: verify them against the code.
 - **Metrics reference.** Every exported `statica_` metric family has its section and its summary row in `docs/reference/metrics.md`, with its type, labels and buckets. The test fails in both directions.
 - **Configuration snippets.** A statica configuration snippet in `docs/` is a fence whose info string is exactly `yaml [config.yaml]`. The test validates every such snippet; a partial fragment is completed with an `s3.bucket`. Write that title nowhere else in `docs/`, not even in prose, and give other YAML another title, such as `yaml [prometheus.yml]`.
-- **Version references.** A reference to a released version, such as an image tag `ghcr.io/gtriggiano/statica:<version>`, `VERSION=<version>`, a download URL or an asset name, goes in a block between the lines `<!-- x-release-please-start-version -->` and `<!-- x-release-please-end -->`, with one version per line and no other version in the block: in the Release PR, release-please replaces the first version of each line of a block. Elsewhere, use `${VERSION}`, set in such a block on the same page. An image tag is never `latest` or a minor version. A test in `internal/release` fails on a reference outside a block, a version different from `.release-please-manifest.json`, two versions on a line of a block, an image tag that is neither, `${VERSION}` used without being set, and a file with blocks that is not in `extra-files` in `release-please-config.json`.
-- **Examples.** `TestRepositoryExamples` in `internal/config/config_test.go` loads and validates each file in `docs/examples/` as a complete configuration; add a new example to its list. Pages include the files with `<<< @/examples/<name>.yaml{yaml}` instead of copying them.
+- **Version references.** A page in `docs/` names the release it documents with the placeholder `{{VERSION}}`, in an image tag `ghcr.io/gtriggiano/statica:{{VERSION}}`, a download URL or an asset name. The build replaces it with the release that the site documents, so readers see commands they can paste as they are. Do not write the version itself, a `VERSION` shell variable, or an image tag that is `latest` or a minor version. A file included with `<<<` is not replaced: keep version references out of `docs/examples/`. `README.md` is read on GitHub as it is, so it names the version itself, in a block between the lines `<!-- x-release-please-start-version -->` and `<!-- x-release-please-end -->`, with one version per line and no other version in the block: in the Release PR, release-please replaces the first version of each line of a block. A test in `internal/release` fails on any of these.
+- **Configuration schema.** `docs/public/config.schema.json`, the JSON Schema that the site publishes for editors and other tools, is generated from the configuration types, the defaults and the notes in `internal/config/json_schema_test.go`. `TestJSONSchema` fails when the file differs: add a note for a new field, then regenerate the file with `go test ./internal/config -run TestJSONSchema -update`. Two more tests check that the schema accepts every example and configuration snippet of the documentation, and that each of its rules rejects a file that statica rejects too. The schema states only what a file states on its own: leave out a rule that involves two fields or the environment.
+- **Examples.** `TestRepositoryExamples` in `internal/config/config_test.go` loads and validates every file in `docs/examples/` as a complete configuration; the only environment variable an example can read is `SITE_BUCKET`. Pages include the files with `<<< @/examples/<name>.yaml{yaml}` instead of copying them.
 
 ### Diagrams
 
@@ -115,10 +153,11 @@ Diagrams are Mermaid, in ` ```mermaid ` fences.
 
 ### Build and checks
 
-- `make docs-build` fails on a link to a missing page and on a `#fragment` that matches no element id in the target page.
+- `make docs-build` fails on a link to a missing page and on a `#fragment` that matches no element id in the target page. It also fails on an address of the published site, `https://gtriggiano.github.io/statica/...`, written in a page or in a skill for users, that is not a file of the build.
 - `make docs-check` serves the build and renders every page except `404.html` in headless Chrome, in the light and dark themes, at desktop and mobile widths. It fails when a diagram does not render, on a console or page error, on an HTTP error, and when a page is wider than the viewport. A wide diagram scrolls inside its own frame.
+- The build also writes the pages for AI agents ([llmstxt.org](https://llmstxt.org/)): a Markdown twin of every page at the path of its source, such as `guide/quickstart.md`, and `llms.txt`, an index of the twins in the order of the sidebar, with the first paragraph of each page as its description. Every HTML page links to both from its `<head>`. `docs/.vitepress/llms.ts` rewrites what only VitePress understands (frontmatter, `<<<` and `<!--@include-->` files, `{{VERSION}}`, containers and code groups) and fails the build on a construct it does not know, such as a new container type: teach it there. Give a page `llms: optional` in its frontmatter to list it in the section that an agent can skip, and a `description` when its first paragraph does not describe it.
 - The site base is `/statica/`. Build for another base with `DOCS_BASE`, for example `DOCS_BASE=/ make docs-build`, and run `make docs-check` with the same value.
-- The published site has a folder per released version (see [RELEASING.md](RELEASING.md#the-documentation-site)). Two more variables shape a build: `DOCS_SITE_ROOT`, the root of the whole site, which defaults to `DOCS_BASE`, and `DOCS_VERSION`, the release that the build documents, empty for local builds. With `DOCS_VERSION` set, the version blocks show that version: it must match `.release-please-manifest.json`, unless it is a release candidate, whose documentation is built from `main`. A build whose `DOCS_BASE` is below `DOCS_SITE_ROOT` is an archived version: it is not indexed by search engines, has no "Edit this page" link, and shows a banner when a newer version exists. Check that variant with, for example, `DOCS_SITE_ROOT=/statica/ DOCS_BASE=/statica/v0.1/ make docs-build`, then `make docs-check` with the same variables. The version selector reads `versions.json` from the site root; `docs/public/versions.json` is an empty placeholder that the deploy replaces.
+- The published site has a folder per released version (see [RELEASING.md](RELEASING.md#the-documentation-site)). Two more variables shape a build: `DOCS_SITE_ROOT`, the root of the whole site, which defaults to `DOCS_BASE`, and `DOCS_VERSION`, the release that the build documents, empty for local builds. With `DOCS_VERSION` set, the pages name that version instead of the one in `.release-please-manifest.json`: it must match `.release-please-manifest.json`, unless it is a release candidate, whose documentation is built from `main`. A build whose `DOCS_BASE` is below `DOCS_SITE_ROOT` is an archived version: it is not indexed by search engines, has no "Edit this page" link, and shows a banner when a newer version exists. Check that variant with, for example, `DOCS_SITE_ROOT=/statica/ DOCS_BASE=/statica/v0.1/ make docs-build`, then `make docs-check` with the same variables. The version selector reads `versions.json` from the site root; `docs/public/versions.json` is an empty placeholder that the deploy replaces.
 - The documentation dependencies are pinned in `docs/package.json` and locked in `docs/package-lock.json`. Commit both together, and install with `make docs-install`. An npm override in `docs/package.json` selects Vite 6.4.6, outside the Vite range that VitePress 1.6.4 declares. Check `make docs-dev`, `make docs-build` and `make docs-preview` whenever you change the override or upgrade VitePress, and remove the override once VitePress no longer needs it.
 
 ## Commit messages and pull request titles
@@ -159,6 +198,7 @@ The pull request template repeats these rules. Dependabot titles already follow 
 - **Add a skill** in `.agents/skills/<name>/SKILL.md`, link it for Claude Code with `ln -s ../../.agents/skills/<name> .claude/skills/<name>`, and list it in the table at the end of `AGENTS.md`.
 - **Symbolic links on Windows.** Git checks the links out as plain text files unless the clone supports symbolic links: turn on Developer Mode, or work as an administrator, and clone with `git clone -c core.symlinks=true`. Without them Claude Code does not find the skills; the other tools and the tests are not affected.
 - **Tests guard them.** `make check` runs the tests in `internal/agentdocs`. They fail when a skill in `.agents/skills/` has no link in `.claude/skills/` or its link leads elsewhere, when `AGENTS.md` does not list a skill, and when `CLAUDE.md` does not import `AGENTS.md`. They also fail when one of these files names something that does not exist: a path under `cmd/`, `internal/`, `docs/`, `.github/`, `.agents/` or `.claude/`, a Go file, a Make target, a test, or a relative link or its anchor. Other names, such as Go identifiers, are not checked.
+- **The skill for users is separate.** `skills/deploy-statica/SKILL.md` is for people who deploy statica, not for contributors: the documentation build publishes it at the site root under `.well-known/agent-skills/`, with an index that names its digest, and [Configure statica with an AI agent](docs/guide/ai-agents.md) tells users how to install it. It is read away from the repository, so it links to the published documentation by URL and names no file of the repository. Update it in the pull request that changes how statica is configured, deployed or verified. A skill there is one `SKILL.md`, with its description on one line; the tests in `internal/agentdocs` check both.
 - **Personal instructions stay local.** Git ignores `CLAUDE.local.md`, `.claude/settings.local.json` and `AGENTS.override.md`.
 
 ## Releases

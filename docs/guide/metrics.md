@@ -2,8 +2,6 @@
 
 Scrape **statica**'s metrics with Prometheus and query the signals that show traffic, failures, cache behavior, origin health and resource use.
 
-statica ships no dashboards and no alert rules. This page shows queries and names the signals worth watching; it sets no thresholds.
-
 ## Prerequisites
 
 - A Prometheus server, or another scraper of the Prometheus format, that can reach statica's admin listener.
@@ -37,7 +35,7 @@ scrape_configs:
           - 10.0.12.21:9090
 ```
 
-The default metrics path, `/metrics`, is the one statica serves. In Kubernetes or another dynamic environment, use your usual service discovery to find the admin port of each instance.
+The default metrics path, `/metrics`, is the one statica serves. On Kubernetes, scrape the admin port of each pod with a PodMonitor or a ServiceMonitor ([Metrics](./kubernetes.md#metrics)).
 
 ## Check the scrape
 
@@ -76,7 +74,7 @@ sum by (purpose, result) (rate(statica_origin_operations_total{result=~"denied|c
 sum by (reason) (rate(statica_stream_failures_total[5m]))
 ```
 
-- `outcome="origin_failure"` counts the error responses decided before the headers ([`statica_http_requests_total`](../reference/metrics.md#statica-http-requests-total)): origin failures, including an origin 403 masked as 404 by `errors.access_denied: not_found`, and expired deadlines. It also counts a request that a shutdown canceled, recorded as 503. A 5xx rate alone misses the masked denials ([why status-only monitoring misses it](../architecture/access-denied.md#why-status-only-monitoring-misses-it)), and a 503 needs its `termination_reason` in the access log to tell the origin from a shutdown.
+- `outcome="origin_failure"` counts the error responses decided before the headers ([`statica_http_requests_total`](../reference/metrics.md#statica-http-requests-total)): origin failures, including an origin 403 masked as 404 by `errors.access_denied: not_found`, and expired deadlines. It also counts a request that a shutdown canceled, recorded as 503. A 5xx rate alone misses the masked denials ([why status-only monitoring misses it](../architecture/access-denied.md#how-a-denial-shows-up)), and a 503 needs its `termination_reason` in the access log to tell the origin from a shutdown.
 - `statica_origin_operations_total` by `result` tells what the origin answered, and `purpose` whether the read served a request (`request`), a shared fill (`cache_fill`) or the origin health check (`health`). `not_found` and `ambiguous_not_found` are left out above, since missing objects are normal.
 - `statica_stream_failures_total` counts responses cut after their headers, and clients that left before them (`disconnect`, with `status="0"` in `statica_http_requests_total`), by reason: the client (`disconnect`, `client_write_timeout`, `client_write_failure`), the origin (`origin_read_timeout`, `origin_read_failure`, `checksum_mismatch`, `length_mismatch`) or statica's limits (`total_deadline`, `shutdown`).
 
@@ -143,7 +141,7 @@ Set `hosts` whenever untrusted clients can reach the public listener. Rejected r
 
 ## Signals worth watching
 
-statica does not ship alert rules, and the right thresholds depend on your traffic. These signals are worth watching:
+The right thresholds depend on your traffic. These signals are worth watching:
 
 - Increases of `statica_http_requests_total{outcome="origin_failure"}` with `status="404"`, which are denied reads masked as missing objects, or with `status="502"`. For 503, check the `termination_reason` of the access events first: a shutdown also produces them.
 - Origin operations with `result="denied"`, `"configuration"` or `"unavailable"`: credentials, bucket, endpoint or region problems.
@@ -156,15 +154,11 @@ statica does not ship alert rules, and the right thresholds depend on your traff
 
 ## Pitfalls
 
-- **Admin listener on loopback.** The default `127.0.0.1:9090` is unreachable from another host or container.
 - **Rates across restarts.** Counters restart from zero with the process; `rate` and `increase` handle the reset, but the memory cache restarts empty too.
 - **No metrics for some requests.** Requests that Go's HTTP server refuses before statica's handler and requests to the admin listener are not counted.
 
 ## Related pages
 
-- [Metrics reference](../reference/metrics.md): every family, label and value.
-- [Admin endpoints reference](../reference/admin-endpoints.md#metrics).
-- [Tune the memory cache](./cache-tuning.md).
-- [Health checks and readiness](./health-checks.md).
-- [Work with the logs](./logs.md).
+- [Tune the memory cache](./cache-tuning.md): act on the cache series.
+- [Health checks and readiness](./health-checks.md): what the readiness and origin health series report.
 - [Troubleshooting](./troubleshooting.md): from a symptom to its cause.

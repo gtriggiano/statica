@@ -21,6 +21,9 @@ var repoRoot = filepath.Join("..", "..")
 const (
 	sharedSkills = ".agents/skills"
 	claudeSkills = ".claude/skills"
+	// userSkills holds the skills for users of statica, which the
+	// documentation build publishes (docs/.vitepress/llms.ts).
+	userSkills = "skills"
 )
 
 var (
@@ -112,6 +115,56 @@ func TestSkills(t *testing.T) {
 		if !e.IsDir() && !slices.Contains(names, e.Name()) {
 			t.Errorf("%s: links to a skill that is not in %s", path.Join(claudeSkills, e.Name()), sharedSkills)
 		}
+	}
+}
+
+// TestUserSkills checks the skills that the documentation site publishes for
+// users of statica: the rules of the Agent Skills specification, and those of
+// the build that publishes them. A user skill is read away from the
+// repository, so it links to the published documentation only.
+func TestUserSkills(t *testing.T) {
+	names := skillDirs(t, userSkills)
+	if len(names) == 0 {
+		t.Fatalf("%s: no skills", userSkills)
+	}
+	contributor := skillDirs(t, sharedSkills)
+	for _, name := range names {
+		t.Run(name, func(t *testing.T) {
+			file := path.Join(userSkills, name, "SKILL.md")
+			s := readSkill(t, file)
+			if len(name) > 64 || !skillNameRE.MatchString(name) {
+				t.Errorf("%s: the directory name is not a valid skill name", file)
+			}
+			if s.Name != name {
+				t.Errorf("%s: name %q differs from its directory", file, s.Name)
+			}
+			if n := utf8.RuneCountInString(s.Description); n == 0 || n > 1024 {
+				t.Errorf("%s: description has %d characters, want 1 to 1024", file, n)
+			}
+			if slices.Contains(contributor, name) {
+				t.Errorf("%s: a skill of %s has the same name", file, sharedSkills)
+			}
+			text := read(t, file)
+			if !strings.Contains(text, "\ndescription: "+s.Description+"\n") {
+				t.Errorf("%s: write the description on one line, unquoted: the documentation build copies it into the index of the skills", file)
+			}
+			if n := strings.Count(text, "\n"); n > 500 {
+				t.Errorf("%s: %d lines, want at most 500", file, n)
+			}
+			for _, e := range dirEntries(t, path.Join(userSkills, name)) {
+				if e.Name() != "SKILL.md" {
+					t.Errorf("%s: %s: the documentation build publishes a single SKILL.md per skill", file, e.Name())
+				}
+			}
+			for _, m := range linkRE.FindAllStringSubmatch(codeSpanRE.ReplaceAllString(text, ""), -1) {
+				if !strings.HasPrefix(m[1], "https://") {
+					t.Errorf("%s: link to %s: a user skill is installed away from the repository, link to the published documentation", file, m[1])
+				}
+			}
+			for _, m := range repoPathRE.FindAllStringSubmatch(text, -1) {
+				t.Errorf("%s: names the repository path %s: a user skill is installed away from the repository", file, m[1])
+			}
+		})
 	}
 }
 

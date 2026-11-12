@@ -12,14 +12,19 @@ import (
 	"testing"
 )
 
-// The release PR updates every version reference in the documentation to the
-// new version. release-please's generic updater replaces, on each line between
-// these markers, only the first SemVer string, and only in the files listed in
-// extra-files. This test fails, before a release, on a reference that the
-// release PR would leave behind or corrupt.
+// README.md is read as it is on GitHub, so it names the released version
+// literally. The release PR updates it: release-please's generic updater
+// replaces, on each line between these markers, only the first SemVer string,
+// and only in the files listed in extra-files.
+//
+// The pages in docs/ write the placeholder instead, which the documentation
+// build replaces with the release it documents (docs/.vitepress/config.mts):
+// a page can name the version more than once on a line, as in a download URL,
+// and no release PR has to touch it.
 const (
-	blockStart = "<!-- x-release-please-start-version -->"
-	blockEnd   = "<!-- x-release-please-end -->"
+	blockStart  = "<!-- x-release-please-start-version -->"
+	blockEnd    = "<!-- x-release-please-end -->"
+	placeholder = "{{VERSION}}"
 )
 
 var (
@@ -29,32 +34,30 @@ var (
 	// finds the 1.27.3 in go1.27.3.
 	semver = regexp.MustCompile(`\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?`)
 
-	// References to a released version: the image tag, the VERSION variable of
-	// the download commands, a download URL and an asset name.
+	// References to a released version: the image tag, a download URL and an
+	// asset name.
 	references = []*regexp.Regexp{
 		regexp.MustCompile(`ghcr\.io/gtriggiano/statica:(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)`),
-		regexp.MustCompile(`\bVERSION=(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)`),
 		regexp.MustCompile(`releases/download/v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)/`),
 		regexp.MustCompile(`statica_(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)_`),
 	}
 
-	// Any tag of the image. Besides a literal version in a block, the only
-	// accepted tag is the VERSION variable: a floating tag such as latest, or a
-	// minor version, would not name the release a page documents.
-	imageTag    = regexp.MustCompile(`ghcr\.io/gtriggiano/statica:([^\s"'\x60)\]>]+)`)
-	versionUse  = regexp.MustCompile(`\$\{?VERSION\b`)
-	versionDecl = regexp.MustCompile(`^\s*VERSION=`)
+	// Any tag of the image: a floating tag such as latest, or a minor version,
+	// would not name the release a page documents.
+	imageTag = regexp.MustCompile(`ghcr\.io/gtriggiano/statica:(\{\{VERSION\}\}|[0-9A-Za-z._$\{\}-]+)`)
+
+	// A shell variable that stands for the version: readers get commands they
+	// can paste as they are.
+	versionVariable = regexp.MustCompile(`\bVERSION=|\$\{?VERSION\b`)
 )
 
-// checkVersionReferences returns the problems of one Markdown file: a version
-// reference outside a marked block, a version in a block different from the
-// released one, a block line with more than one version, unbalanced markers,
-// an image tag that is neither the version nor ${VERSION}, and a use of
-// VERSION in a file that does not set it in a block. marked reports whether
-// the file has at least one block.
-func checkVersionReferences(name, content, version string) (problems []string, marked bool) {
+// checkReadmeReferences returns the problems of a file that names the version
+// literally: a version reference outside a marked block, a version in a block
+// different from the released one, a block line with more than one version,
+// unbalanced markers, an image tag that is not a full version and a VERSION
+// shell variable. marked reports whether the file has at least one block.
+func checkReadmeReferences(name, content, version string) (problems []string, marked bool) {
 	inBlock := false
-	usesVersion, setsVersion := false, false
 	for i, line := range strings.Split(content, "\n") {
 		at := fmt.Sprintf("%s:%d", name, i+1)
 		switch strings.TrimSpace(line) {
@@ -75,15 +78,13 @@ func checkVersionReferences(name, content, version string) (problems []string, m
 			problems = append(problems, at+": use the block markers on lines of their own")
 			continue
 		}
-		for _, m := range imageTag.FindAllStringSubmatch(line, -1) {
-			if tag := m[1]; !semver.MatchString(tag) && tag != "${VERSION}" && tag != "$VERSION" {
-				problems = append(problems, fmt.Sprintf("%s: image tag %q: write the version in a block, or ${VERSION}", at, tag))
-			}
+		if versionVariable.MatchString(line) {
+			problems = append(problems, at+": a VERSION shell variable: write the version itself, in a block")
 		}
-		if inBlock && versionDecl.MatchString(line) {
-			setsVersion = true
-		} else if versionUse.MatchString(line) {
-			usesVersion = true
+		for _, m := range imageTag.FindAllStringSubmatch(line, -1) {
+			if tag := m[1]; !semver.MatchString(tag) {
+				problems = append(problems, fmt.Sprintf("%s: image tag %q: write the version, in a block", at, tag))
+			}
 		}
 		if inBlock {
 			found := semver.FindAllString(line, -1)
@@ -106,13 +107,37 @@ func checkVersionReferences(name, content, version string) (problems []string, m
 	if inBlock {
 		problems = append(problems, name+": block not closed")
 	}
-	if usesVersion && !setsVersion {
-		problems = append(problems, name+": uses VERSION but does not set it with VERSION=<version> in a block")
-	}
 	return problems, marked
 }
 
-func TestCheckVersionReferences(t *testing.T) {
+// checkPageReferences returns the problems of a page in docs/: a literal
+// version in an image tag, a download URL or an asset name, an image tag that
+// is not the placeholder, a VERSION shell variable and a release-please
+// marker, which nothing updates there.
+func checkPageReferences(name, content string) (problems []string) {
+	for i, line := range strings.Split(content, "\n") {
+		at := fmt.Sprintf("%s:%d", name, i+1)
+		if strings.Contains(line, "x-release-please") {
+			problems = append(problems, at+": a release-please marker: no release PR updates the pages in docs/, write "+placeholder)
+		}
+		if versionVariable.MatchString(line) {
+			problems = append(problems, at+": a VERSION shell variable: write "+placeholder)
+		}
+		for _, m := range imageTag.FindAllStringSubmatch(line, -1) {
+			if tag := m[1]; tag != placeholder && !semver.MatchString(tag) {
+				problems = append(problems, fmt.Sprintf("%s: image tag %q: write %s", at, tag, placeholder))
+			}
+		}
+		for _, re := range references {
+			for _, m := range re.FindAllStringSubmatch(line, -1) {
+				problems = append(problems, fmt.Sprintf("%s: %q names a version: write %s", at, m[0], placeholder))
+			}
+		}
+	}
+	return problems
+}
+
+func TestCheckReadmeReferences(t *testing.T) {
 	const version = "0.2.0"
 	block := func(lines ...string) string {
 		return blockStart + "\n" + strings.Join(lines, "\n") + "\n" + blockEnd + "\n"
@@ -123,37 +148,64 @@ func TestCheckVersionReferences(t *testing.T) {
 		wantMarked    bool
 	}{
 		{name: "no references", content: "Install statica.\n"},
-		{name: "references in a block", content: block("VERSION=0.2.0", "docker pull ghcr.io/gtriggiano/statica:0.2.0"), wantMarked: true},
-		{name: "reference without a literal version", content: block("VERSION=0.2.0") + "curl -LO .../releases/download/v${VERSION}/statica_${VERSION}_linux_amd64.tar.gz\n", wantMarked: true},
-		{name: "image tag from VERSION", content: block("VERSION=0.2.0") + "docker pull \"ghcr.io/gtriggiano/statica:${VERSION}\"\n", wantMarked: true},
-		{name: "VERSION used but not set", content: "docker pull ghcr.io/gtriggiano/statica:$VERSION\n", wantProblem: "does not set it"},
-		{name: "VERSION set outside a block", content: "VERSION=0.2.0\ndocker pull ghcr.io/gtriggiano/statica:$VERSION\n", wantProblem: "outside a block"},
+		{name: "references in a block", content: block("docker pull ghcr.io/gtriggiano/statica:0.2.0", "tar -xzf statica_0.2.0_linux_amd64.tar.gz"), wantMarked: true},
+		{name: "VERSION variable", content: block("VERSION=0.2.0") + "docker pull ghcr.io/gtriggiano/statica:$VERSION\n", wantProblem: "VERSION shell variable", wantMarked: true},
 		{name: "floating image tag", content: "docker pull ghcr.io/gtriggiano/statica:latest\n", wantProblem: `image tag "latest"`},
 		{name: "minor image tag", content: "image: ghcr.io/gtriggiano/statica:0.2\n", wantProblem: `image tag "0.2"`},
 		{name: "image name without a tag", content: "The image `ghcr.io/gtriggiano/statica` is public, pinned as `ghcr.io/gtriggiano/statica@sha256:…`.\n"},
 		{name: "image reference outside a block", content: "docker pull ghcr.io/gtriggiano/statica:0.2.0\n", wantProblem: "outside a block"},
 		{name: "asset name outside a block", content: "tar -xzf statica_0.2.0_linux_amd64.tar.gz\n", wantProblem: "outside a block"},
-		{name: "version changed by hand", content: block("VERSION=0.1.9"), wantProblem: "version 0.1.9 in a block", wantMarked: true},
-		{name: "two versions on a line", content: block("VERSION=0.2.0 # needs Go 1.27.3"), wantProblem: "2 versions on one line", wantMarked: true},
-		{name: "another version in a block", content: block("VERSION=0.2.0", "go install golang.org/dl/go1.27.3"), wantProblem: "version 1.27.3 in a block", wantMarked: true},
-		{name: "unclosed block", content: blockStart + "\nVERSION=0.2.0\n", wantProblem: "block not closed", wantMarked: true},
-		{name: "inline marker", content: "VERSION=0.2.0 <!-- x-release-please-version -->\n", wantProblem: "lines of their own"},
+		{name: "version changed by hand", content: block("IMAGE=ghcr.io/gtriggiano/statica:0.1.9"), wantProblem: "version 0.1.9 in a block", wantMarked: true},
+		{name: "two versions on a line", content: block("curl -LO .../releases/download/v0.2.0/statica_0.2.0_linux_amd64.tar.gz"), wantProblem: "2 versions on one line", wantMarked: true},
+		{name: "another version in a block", content: block("docker pull ghcr.io/gtriggiano/statica:0.2.0", "go install golang.org/dl/go1.27.3"), wantProblem: "version 1.27.3 in a block", wantMarked: true},
+		{name: "unclosed block", content: blockStart + "\ndocker pull ghcr.io/gtriggiano/statica:0.2.0\n", wantProblem: "block not closed", wantMarked: true},
+		{name: "inline marker", content: "docker pull ghcr.io/gtriggiano/statica:0.2.0 <!-- x-release-please-version -->\n", wantProblem: "lines of their own"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			problems, marked := checkVersionReferences("page.md", tc.content, version)
+			problems, marked := checkReadmeReferences("README.md", tc.content, version)
 			if marked != tc.wantMarked {
 				t.Errorf("marked = %v, want %v", marked, tc.wantMarked)
 			}
-			if tc.wantProblem == "" {
-				if len(problems) > 0 {
-					t.Errorf("unexpected problems: %q", problems)
-				}
-				return
-			}
-			if !slices.ContainsFunc(problems, func(p string) bool { return strings.Contains(p, tc.wantProblem) }) {
-				t.Errorf("problems %q, want one containing %q", problems, tc.wantProblem)
-			}
+			checkProblems(t, problems, tc.wantProblem)
 		})
+	}
+}
+
+func TestCheckPageReferences(t *testing.T) {
+	for _, tc := range []struct {
+		name, content string
+		wantProblem   string // empty: no problem
+	}{
+		{name: "no references", content: "Install statica.\n"},
+		{name: "placeholder before punctuation", content: "Use `ghcr.io/gtriggiano/statica:{{VERSION}}`, or ghcr.io/gtriggiano/statica:{{VERSION}}.\n"},
+		{name: "placeholder", content: "docker pull ghcr.io/gtriggiano/statica:{{VERSION}}\ncurl -LO .../releases/download/v{{VERSION}}/statica_{{VERSION}}_linux_amd64.tar.gz\n"},
+		{name: "image name without a tag", content: "The image `ghcr.io/gtriggiano/statica` is public, pinned as `ghcr.io/gtriggiano/statica@sha256:…`.\n"},
+		{name: "another version", content: "You need Go 1.27.3 or later, and a port such as 127.0.0.1:9090.\n"},
+		{name: "literal image tag", content: "docker pull ghcr.io/gtriggiano/statica:0.2.0\n", wantProblem: "names a version"},
+		{name: "literal download URL", content: "curl -LO .../releases/download/v0.2.0/checksums.txt\n", wantProblem: "names a version"},
+		{name: "literal asset name", content: "tar -xzf statica_0.2.0_linux_amd64.tar.gz\n", wantProblem: "names a version"},
+		{name: "floating image tag", content: "docker pull ghcr.io/gtriggiano/statica:latest\n", wantProblem: `image tag "latest"`},
+		{name: "minor image tag", content: "image: ghcr.io/gtriggiano/statica:0.2\n", wantProblem: `image tag "0.2"`},
+		{name: "VERSION set", content: "VERSION=0.2.0\n", wantProblem: "VERSION shell variable"},
+		{name: "VERSION used", content: "docker pull \"ghcr.io/gtriggiano/statica:${VERSION}\"\n", wantProblem: "VERSION shell variable"},
+		{name: "release-please marker", content: blockStart + "\n", wantProblem: "release-please marker"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			checkProblems(t, checkPageReferences("page.md", tc.content), tc.wantProblem)
+		})
+	}
+}
+
+func checkProblems(t *testing.T, problems []string, want string) {
+	t.Helper()
+	if want == "" {
+		if len(problems) > 0 {
+			t.Errorf("unexpected problems: %q", problems)
+		}
+		return
+	}
+	if !slices.ContainsFunc(problems, func(p string) bool { return strings.Contains(p, want) }) {
+		t.Errorf("problems %q, want one containing %q", problems, want)
 	}
 }
 
@@ -162,44 +214,61 @@ func TestRepositoryVersionReferences(t *testing.T) {
 	version := manifestVersion(t)
 	extraFiles := configuredExtraFiles(t)
 
-	files := []string{"README.md"}
-	err := filepath.WalkDir(filepath.Join(repoRoot, "docs"), func(path string, d fs.DirEntry, err error) error {
+	const readme = "README.md"
+	data, err := os.ReadFile(filepath.Join(repoRoot, readme))
+	if err != nil {
+		t.Fatal(err)
+	}
+	problems, marked := checkReadmeReferences(readme, string(data), version)
+	for _, p := range problems {
+		t.Error(p)
+	}
+	if marked && !slices.Contains(extraFiles, readme) {
+		t.Errorf("%s has version blocks but is not in extra-files in release-please-config.json: the release PR would not update it", readme)
+	}
+	for _, name := range extraFiles {
+		if strings.HasPrefix(name, "docs/") {
+			t.Errorf("extra-files in release-please-config.json lists %s: the pages in docs/ write %s, which the documentation build replaces", name, placeholder)
+		}
+		if _, err := os.Stat(filepath.Join(repoRoot, name)); err != nil {
+			t.Errorf("extra-files in release-please-config.json lists %s: %v", name, err)
+		}
+	}
+
+	err = filepath.WalkDir(filepath.Join(repoRoot, "docs"), func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.IsDir() && (d.Name() == "node_modules" || d.Name() == ".vitepress") {
 			return filepath.SkipDir
 		}
-		if !d.IsDir() && strings.HasSuffix(path, ".md") {
-			rel, err := filepath.Rel(repoRoot, path)
-			if err != nil {
-				return err
-			}
-			files = append(files, filepath.ToSlash(rel))
+		if d.IsDir() {
+			return nil
+		}
+		// The build does not replace the placeholder in the files that pages
+		// include with <<<.
+		example := filepath.Base(filepath.Dir(path)) == "examples"
+		if !example && !strings.HasSuffix(path, ".md") {
+			return nil
+		}
+		rel, err := filepath.Rel(repoRoot, path)
+		if err != nil {
+			return err
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		for _, p := range checkPageReferences(filepath.ToSlash(rel), string(data)) {
+			t.Error(p)
+		}
+		if example && strings.Contains(string(data), placeholder) {
+			t.Errorf("%s: %s in an included file: the build would not replace it", filepath.ToSlash(rel), placeholder)
 		}
 		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
-	}
-
-	for _, name := range files {
-		data, err := os.ReadFile(filepath.Join(repoRoot, name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		problems, marked := checkVersionReferences(name, string(data), version)
-		for _, p := range problems {
-			t.Error(p)
-		}
-		if marked && !slices.Contains(extraFiles, name) {
-			t.Errorf("%s has version blocks but is not in extra-files in release-please-config.json: the release PR would not update it", name)
-		}
-	}
-	for _, name := range extraFiles {
-		if _, err := os.Stat(filepath.Join(repoRoot, name)); err != nil {
-			t.Errorf("extra-files in release-please-config.json lists %s: %v", name, err)
-		}
 	}
 }
 

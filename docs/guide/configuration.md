@@ -24,7 +24,7 @@ See [selecting the file](../reference/configuration.md#selecting-the-file).
 
 [`s3.bucket`](../reference/configuration.md#s3-bucket) is the only required field. Everything else has a default:
 
-- the public listener on `127.0.0.1:8080` and the admin listener on `127.0.0.1:9090`, both reachable from the same machine only ([`server.listen`](../reference/configuration.md#server-listen), [`admin.listen`](../reference/configuration.md#admin-listen));
+- the public listener on `127.0.0.1:8080` and the admin listener on `127.0.0.1:9090`, both reachable from the same machine only: set both addresses to run in a container ([`server.listen`](../reference/configuration.md#server-listen), [`admin.listen`](../reference/configuration.md#admin-listen));
 - the whole bucket is the site, and `index.html` answers paths that end in `/` ([`s3.prefix`](../reference/configuration.md#s3-prefix), [`index`](../reference/configuration.md#index));
 - a memory cache of up to 128 MiB and 10,000 entries, where objects stay fresh for up to 5 minutes ([`cache`](../reference/configuration.md#cache));
 - the built-in 404 page ([`not_found`](../reference/configuration.md#not-found));
@@ -128,6 +128,21 @@ S3 region deferred to AWS discovery at startup
 
 When no region is found, `statica serve` logs `startup_failed stage=origin_client` and exits with status 1, and `config check-origin` reports `origin check failed: origin configuration`. See [Connect to S3 and S3-compatible providers](./s3-providers.md) for the permissions and the settings of each kind of origin.
 
+## Validate in your editor
+
+statica publishes a [JSON Schema](https://json-schema.org/) of the configuration file. An editor with YAML language support, such as the YAML extension of Visual Studio Code, reads it from a comment on the first line of the file, then completes field names and reports mistakes as you type:
+
+```yaml [config.yaml]
+# yaml-language-server: $schema=https://gtriggiano.github.io/statica/config.schema.json
+s3:
+  bucket: example-websites
+  region: eu-west-1
+```
+
+That URL is the schema of the latest release. The schema of another version is in the folder of its documentation: `https://gtriggiano.github.io/statica/v<major>.<minor>/config.schema.json`.
+
+The schema checks field names, types, allowed values, integer bounds and the shape of some strings, and carries the description and the default of each field. It does not check the rules that involve two fields, redirect templates, regular expressions, reserved header names, the syntax of hostnames, addresses, ports, object keys and `Cache-Control` values, or a value written as `${NAME}`, which is known only once statica reads the environment. `statica config validate` remains the check that decides whether a file is valid.
+
 ## Check a configuration
 
 Run these commands before you start or restart the server with a new file:
@@ -142,25 +157,15 @@ statica config check-origin
 - [`config check-origin`](../reference/cli.md#statica-config-check-origin) reads the metadata of one object with your credentials. It is the check that catches missing credentials, a wrong region or a missing object.
 
 ::: warning
-`statica serve` does not check credentials or the bucket when it starts, and it reports ready unless [`admin.origin_health`](../reference/configuration.md#admin-origin-health) is enabled. Without credentials, it answers 502 Bad Gateway, or 504 Gateway Timeout while the AWS SDK looks for a machine role. With credentials that the origin rejects with 403 Forbidden, it answers 404 Not Found with the default `errors.access_denied`, or 502 Bad Gateway with `bad_gateway`, as for any denied object ([access denied](../architecture/access-denied.md)). Run `config check-origin` first.
+`statica serve` does not check credentials or the bucket when it starts, and it reports ready unless the [origin health check](./health-checks.md#decide-whether-readiness-follows-the-origin) is enabled: the requests that read the bucket then fail ([Troubleshooting](./troubleshooting.md)). Run `config check-origin` first.
 :::
 
 ## Apply a change
 
-statica reads its configuration once, when it starts. To apply a change, restart the process. The restarted process starts with an empty memory cache ([configuration changes and restarts](../architecture/lifecycle.md#configuration-changes-and-restarts)). [Change the configuration](./deployment.md#change-the-configuration) describes a rollout.
-
-## Pitfalls
-
-- **An `admin.origin_health` block without `enabled: true` does nothing**, apart from choosing the key that `config check-origin` reads. It is still validated, so an invalid value in it is still an error ([Health checks and readiness](./health-checks.md)).
-- **Validation does not resolve names.** `config validate` rejects listen addresses with equal hosts, a host on every interface, or two loopback hosts such as `localhost:8080` and `127.0.0.1:8080` on the same port, but two different DNS names that resolve to the same address pass, then the second listener cannot bind and `statica serve` exits with status 1 ([`config validate` passes but `serve` fails](./troubleshooting.md#config-validate-passes-but-serve-fails)).
+statica reads its configuration once, when it starts. To apply a change, restart the process. The restarted process starts with an empty memory cache ([configuration changes and restarts](../architecture/memory-cache.md#restarts)). [Change the configuration](./deployment.md#change-the-configuration) describes a rollout.
 
 ## Related pages
 
-- [Quickstart](./quickstart.md): build statica and serve a bucket.
-- [Configuration reference](../reference/configuration.md): every field, its type, default and rules.
 - [Configuration examples](../reference/examples.md): complete files, from minimal to production-style.
-- [CLI reference](../reference/cli.md): the commands, their output and exit statuses.
-- [Memory cache](../architecture/memory-cache.md): what the `cache` settings control.
-- [Timeouts and long downloads](../architecture/timeouts.md): how the timeouts combine.
-- [Security model](../architecture/security.md): the admin listener, proxies and TLS.
-- Guides for the next tasks: [Publish a site to S3](./publishing.md), [Connect to S3 and S3-compatible providers](./s3-providers.md), [Serve HTTPS directly](./tls.md), [Run behind a reverse proxy, CDN or ingress](./behind-a-proxy.md), [Deploy, roll out and shut down](./deployment.md), [Tune the memory cache](./cache-tuning.md), [Health checks and readiness](./health-checks.md) and [Troubleshooting](./troubleshooting.md).
+- [Publish a site to S3](./publishing.md): lay out the bucket that the configuration points at.
+- [Deploy on Kubernetes](./kubernetes.md): the configuration in a ConfigMap.

@@ -21,10 +21,7 @@
     ".": {
       "initial-version": "1.0.0",
       "extra-files": [
-        { "type": "generic", "path": "README.md" },
-        { "type": "generic", "path": "docs/guide/installation.md" },
-        { "type": "generic", "path": "docs/guide/deployment.md" },
-        { "type": "generic", "path": "docs/reference/container-image.md" }
+        { "type": "generic", "path": "README.md" }
       ]
     }
   }

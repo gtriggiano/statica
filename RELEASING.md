@@ -5,7 +5,7 @@ This is the runbook for maintainers. Contributors only need the [commit message 
 ## How a release works
 
 - Every pull request is squash-merged with a Conventional Commits title, so each commit on `main` says what kind of change it is.
-- [release-please](https://github.com/googleapis/release-please) keeps a **Release PR** open, titled `chore(main): release X.Y.Z`. It holds the next version, the new section of `CHANGELOG.md` and the version references in the documentation, and it updates itself on every push to `main`. When nothing visible to users has changed since the last release, there is no Release PR.
+- [release-please](https://github.com/googleapis/release-please) keeps a **Release PR** open, titled `chore(main): release X.Y.Z`. It holds the next version, the new section of `CHANGELOG.md` and the version references in `README.md`, and it updates itself on every push to `main`. When nothing visible to users has changed since the last release, there is no Release PR.
 - **Merging the Release PR is the release.** The Release workflow then:
   1. creates the tag `vX.Y.Z` and a draft GitHub Release with the changelog section;
   2. builds with [GoReleaser](https://goreleaser.com/) the archives for Linux and macOS on amd64 and arm64, the checksums, the SBOMs and the image `ghcr.io/gtriggiano/statica:X.Y.Z` for linux/amd64 and linux/arm64, from the same binaries; in parallel it builds the documentation of this version;
@@ -35,7 +35,7 @@ These settings are in place; check them when something behaves unexpectedly.
 2. When you want to release, open the Release PR and check:
    - the **version** in the title;
    - the new section of **`CHANGELOG.md`**; to fix an entry, see [Fix a version or a changelog entry](#fix-a-version-or-a-changelog-entry);
-   - the **version references** updated in `README.md` and `docs/`, and the **checks** green.
+   - the **version references** updated in `README.md`, and the **checks** green.
 3. Optionally, write an introduction at the top of the Release PR description just before merging: the release notes are taken from there. To have it in `CHANGELOG.md` too, push a commit to the Release PR branch. Do both last: release-please rewrites the Release PR on every push to `main`.
 4. **Squash and merge.** Follow the Release workflow in the Actions tab.
 5. When it ends, the release is marked Latest, the site shows the new version, and `docker pull ghcr.io/gtriggiano/statica:latest` gets the new image.
@@ -51,7 +51,7 @@ A release candidate lets people try a version before it is released, for example
 3. The workflow creates the tag `vX.Y.Z-rc.N` on the current `main`, with `N` one more than the last candidate of that version, and runs the same pipeline. The result is a pre-release (never Latest), the image `X.Y.Z-rc.N` (the floating tags do not move) and the documentation under `/statica/next/`.
 4. If the candidate has problems, fix them with normal pull requests and run step 2 again. When it is good, release as above: the final version comes from the current `main`.
 
-Candidates do not go through release-please, so on `main` `CHANGELOG.md` and the version references in the documentation keep showing the last release. The documentation built for the candidate, under `/statica/next/`, shows the candidate's version in every image tag and installation command.
+Candidates do not go through release-please, so on `main` `CHANGELOG.md` and the version references in `README.md` keep showing the last release. The documentation built for the candidate, under `/statica/next/`, shows the candidate's version in every image tag and installation command.
 ## Fix a version or a changelog entry
 
 - **A merged pull request has the wrong title** (a missing `!`, a `feat` that was a `fix`): edit the description of that merged pull request and add, at the end:
@@ -88,7 +88,7 @@ Actions → **Release** → **Run workflow** → choose the tag `vX.Y.Z` or `vX.
 
 - The site root, `https://gtriggiano.github.io/statica/`, describes the latest release. Each released minor version has a folder, `/statica/vX.Y/`, built from its latest patch; `/statica/next/` holds the latest release candidate while it is newer than the latest release. A version selector lists them.
 - Every release attaches the build of its own documentation, `statica_X.Y.Z_docs.tar.gz`. The deploy builds the root from the latest release tag and composes the folders from those archives, so a published version never changes and old tags are never rebuilt.
-- Each version of the site names its own version in every image tag and download command. A release builds its documentation from its tag, whose version blocks the Release PR has updated; the build fails if `DOCS_VERSION` and `.release-please-manifest.json` disagree. A release candidate is built from `main`, and the build writes the candidate's version into the version blocks.
+- Each version of the site names its own version in every image tag and download command. The pages write the placeholder `{{VERSION}}`, and the build replaces it. A release builds its documentation from its tag; the build fails if `DOCS_VERSION` and `.release-please-manifest.json` disagree. A release candidate is built from `main`, and the build writes the candidate's version.
 - The site is never published from `main`: pages there can describe unreleased behavior. A documentation-only fix goes online with the next release.
 - To publish the site again, for example after a GitHub Pages incident, run the Documentation workflow on `main` with **deploy** selected.
 

@@ -31,9 +31,10 @@ server:
   max_connections: 1024
   max_concurrent_requests: 256
 admin:
-  # No authentication: keep it on loopback or on a private address that your
-  # orchestrator and Prometheus can reach.
-  listen: "127.0.0.1:9090"
+  # No authentication. Probes and Prometheus reach it from other machines or
+  # containers: let only them connect to this port, with a firewall or a
+  # network policy.
+  listen: ":9090"
   # Readiness waits for the first successful check of health.txt under the
   # prefix, so publish that object.
   origin_health:

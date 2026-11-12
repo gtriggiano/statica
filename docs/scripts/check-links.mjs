@@ -4,6 +4,10 @@
 // <a href> (navigation and sidebar included): the target file must exist and a
 // #fragment must be an element id in the target page. Links to other origins
 // (http(s) to other hosts, mailto:) and bare "#" are ignored.
+// It also checks the addresses of the published site that are written out in
+// full, in the Markdown version of the pages and in the skills for users
+// (skills/*/SKILL.md): each must be a file of the build, so that renaming a
+// page cannot break the skill.
 // Run it after `vitepress build`, with the same DOCS_BASE. Node built-ins only.
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
@@ -15,6 +19,11 @@ const base = process.env.DOCS_BASE ?? '/statica/'
 const dist = fileURLToPath(new URL('../.vitepress/dist/', import.meta.url))
 // Placeholder origin used to resolve hrefs; any other origin is external.
 const origin = 'http://docs.invalid'
+// The root of the published site, which describes the latest release.
+const site = 'https://gtriggiano.github.io/statica/'
+const skills = fileURLToPath(new URL('../../skills/', import.meta.url))
+// An archived version (see .vitepress/config.mts) does not publish the skills.
+const archived = base !== (process.env.DOCS_SITE_ROOT ?? base)
 
 if (!base.startsWith('/') || !base.endsWith('/')) {
   console.error(`check-links: DOCS_BASE must start and end with / (got ${base})`)
@@ -114,9 +123,28 @@ for (const [page, { hrefs }] of pages) {
   }
 }
 
+// Addresses of the site written in full. One that continues with a placeholder
+// (v<major>.<minor>/) or names a version folder is not a file of this build.
+const siteRE = new RegExp(site.replace(/[.]/g, '\\.') + "[^\\s\"'`()<>\\[\\]]*(<)?", 'g')
+const sources = [...files].filter((f) => f.endsWith('.md')).map((f) => [f, join(dist, f)])
+if (existsSync(skills)) {
+  for (const name of readdirSync(skills)) sources.push([`skills/${name}/SKILL.md`, join(skills, name, 'SKILL.md')])
+}
+for (const [name, file] of sources) {
+  if (!existsSync(file)) continue
+  for (const [text, placeholder] of readFileSync(file, 'utf8').matchAll(siteRE)) {
+    let target = decodePercent(text.slice(site.length).replace(/[#?].*$/, '').replace(/[.,;:]+$/, ''))
+    if (placeholder || /^(v[0-9]+\.[0-9]+|next)\//.test(target)) continue
+    if (archived && target.startsWith('.well-known/')) continue
+    if (target === '' || target.endsWith('/')) target += 'index.html'
+    checked++
+    if (!files.has(target)) failures.push(`${name}: ${text} -> no file ${target} in the build`)
+  }
+}
+
 if (failures.length) {
   console.error(`check-links: ${failures.length} broken internal link(s) or anchor(s):`)
   for (const failure of failures) console.error(`  ${failure}`)
   process.exit(1)
 }
-console.log(`check-links: ${checked} internal links in ${pages.size} pages, all targets and anchors found`)
+console.log(`check-links: ${checked} internal links and site addresses in ${pages.size} pages, all targets and anchors found`)

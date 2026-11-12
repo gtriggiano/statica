@@ -15,41 +15,44 @@ export const nav: DefaultTheme.NavItem[] = [
 export const sidebar: DefaultTheme.SidebarMulti = {
   '/guide/': [
     {
-      text: 'Introduction',
+      text: 'Get started',
       items: [
         { text: 'What is statica?', link: '/guide/what-is-statica' },
         { text: 'Quickstart', link: '/guide/quickstart' },
         { text: 'Installation', link: '/guide/installation' },
         { text: 'Configuration basics', link: '/guide/configuration' },
+        { text: 'Configuration examples', link: '/reference/examples' },
+        { text: 'Configure statica with an AI agent', link: '/guide/ai-agents' },
       ],
     },
     {
-      text: 'Serving your site',
+      text: 'Deploy',
+      items: [
+        { text: 'Deploy on Kubernetes', link: '/guide/kubernetes' },
+        { text: 'Deploy, roll out and shut down', link: '/guide/deployment' },
+        { text: 'Connect to S3 and compatible providers', link: '/guide/s3-providers' },
+        { text: 'Run behind a proxy, CDN or ingress', link: '/guide/behind-a-proxy' },
+        { text: 'Serve HTTPS directly', link: '/guide/tls' },
+        { text: 'Health checks and readiness', link: '/guide/health-checks' },
+      ],
+    },
+    {
+      text: 'Build your site',
       items: [
         { text: 'Publish a site to S3', link: '/guide/publishing' },
-        { text: 'S3 and compatible providers', link: '/guide/s3-providers' },
-        { text: 'Single-page applications', link: '/guide/single-page-apps' },
-        { text: 'Redirects', link: '/guide/redirects' },
-        { text: 'Precompressed files', link: '/guide/precompressed-files' },
-        { text: 'Browser and CDN caching', link: '/guide/browser-caching' },
+        { text: 'Serve a single-page application', link: '/guide/single-page-apps' },
+        { text: 'Configure redirects', link: '/guide/redirects' },
+        { text: 'Serve precompressed files', link: '/guide/precompressed-files' },
+        { text: 'Control browser and CDN caching', link: '/guide/browser-caching' },
         { text: 'Response headers and CORS', link: '/guide/headers-and-cors' },
       ],
     },
     {
-      text: 'Running in production',
+      text: 'Operate',
       items: [
-        { text: 'Serve HTTPS', link: '/guide/tls' },
-        { text: 'Behind a proxy or ingress', link: '/guide/behind-a-proxy' },
-        { text: 'Deploy and shut down', link: '/guide/deployment' },
+        { text: 'Work with the logs', link: '/guide/logs' },
+        { text: 'Monitor with Prometheus', link: '/guide/metrics' },
         { text: 'Tune the memory cache', link: '/guide/cache-tuning' },
-      ],
-    },
-    {
-      text: 'Monitoring',
-      items: [
-        { text: 'Logs', link: '/guide/logs' },
-        { text: 'Metrics', link: '/guide/metrics' },
-        { text: 'Health and readiness', link: '/guide/health-checks' },
         { text: 'Troubleshooting', link: '/guide/troubleshooting' },
       ],
     },

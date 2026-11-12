@@ -6,7 +6,7 @@ Configure **statica** so that deep links into a single-page application, such as
 
 - The built application [published](./publishing.md) under the publication prefix: its shell (usually `index.html`) and its assets.
 - Asset URLs in the shell that are absolute, such as `/assets/main.4c1d.js`. statica serves the shell at the URL that was requested, at any depth, so a relative `assets/main.4c1d.js` would resolve to `/orders/assets/main.4c1d.js` on `/orders/42`.
-- On AWS, credentials with `s3:ListBucket` on the bucket. Without it, AWS answers 403 Forbidden for every missing route, and statica never serves the shell for a denied read ([AWS without `s3:ListBucket`](../architecture/access-denied.md#aws-without-s3-listbucket)).
+- On AWS, credentials with `s3:ListBucket` on the bucket: without it, the shell is never served ([the `s3:ListBucket` trade-off](./s3-providers.md#the-s3-listbucket-trade-off)).
 
 ## How the fallback decides
 
@@ -148,18 +148,13 @@ curl -s -o /dev/null -w '%{http_code}\n' -H 'Accept: text/html' http://127.0.0.1
 Every eligible URL without an object gets the shell with 200 OK, mistyped and obsolete links included. Crawlers, link checkers and status-based monitoring see 200, not 404. Your application must render its own "not found" view for routes it does not know.
 :::
 
-- **Origin errors never become the shell.** A 403 Forbidden, a timeout or a provider error on any lookup, the shell's own included, ends the request with that error. On AWS without `s3:ListBucket`, every route then answers 404 Not Found with the default `errors.access_denied`.
+- **Origin errors never become the shell.** A 403 Forbidden, a timeout or a provider error on any lookup, the shell's own included, ends the request with that error.
 - **Every route costs origin lookups.** Before serving the shell, statica confirms that the route has no object of its own and no index object: it reads the exact key and the index key (only the index key for a path ending in `/`), plus their variants with [precompressed files](./precompressed-files.md). Each confirmed absence becomes a negative entry for [`cache.negative_ttl`](../reference/configuration.md#cache-negative-ttl), so a route repeated within that time is answered from memory, while a new route, such as a new order ID, reads the origin again.
 - **Negative entries per route fill the memory cache.** They count against [`cache.max_entries`](../reference/configuration.md#cache-max-entries) like any other entry, so many distinct routes can push objects out of memory. A `cache.rules` entry with `negative_ttl: 0s` for the route namespace stores none, at the price of reading the origin for every route request.
 - **Redirect rules run first.** A [`redirects`](./redirects.md) rule that matches a route answers before any lookup.
-- **Clients that do not ask for HTML get 404.** Tools that send `Accept: */*`, as `curl` does by default, see 404 on routes that browsers can open.
 
 ## Related pages
 
 - [SPA fallback](../architecture/spa-fallback.md): the exact eligibility rules and response headers.
-- [Publish a site to S3](./publishing.md)
-- [Control browser and CDN caching](./browser-caching.md)
-- [Memory cache](../architecture/memory-cache.md#negative-entries): negative entries.
 - [Tune the memory cache](./cache-tuning.md): `cache.rules` and memory lifetimes.
 - [Troubleshooting](./troubleshooting.md#single-page-app-routes-answer-404): routes that answer 404.
-- [`spa` configuration reference](../reference/configuration.md#spa)

@@ -22,12 +22,8 @@ headers:
 
 - **`Content-Security-Policy`** limits where pages may load scripts, styles, images and frames from. A policy that is too strict breaks pages, so try a new one first as `Content-Security-Policy-Report-Only`: browsers do not enforce it, and only report violations, in the console or to an endpoint the policy names.
 - **`Referrer-Policy`** limits the `Referer` that browsers send when visitors follow links to other sites.
-- **`Strict-Transport-Security`** tells browsers to use only HTTPS for the host for `max-age` seconds. Browsers honor it only on HTTPS responses, so set it when visitors reach the site over HTTPS, through statica's own [TLS](../reference/configuration.md#server-tls) or a proxy in front of it ([Send Strict-Transport-Security](./tls.md#send-strict-transport-security)).
+- **`Strict-Transport-Security`** tells browsers to use only HTTPS for the host for `max-age` seconds. Browsers honor it only on HTTPS responses, so set it when visitors reach the site over HTTPS, through statica's own [TLS](../reference/configuration.md#server-tls) or a proxy in front of it. A browser cannot be made to forget it: read [Send Strict-Transport-Security](./tls.md#send-strict-transport-security) before you raise `max-age`.
 - **`Permissions-Policy`** turns off browser features that the site does not use.
-
-::: warning HSTS cannot be withdrawn
-A browser that has received `Strict-Transport-Security` refuses plain HTTP to the host until `max-age` runs out, and to every subdomain too with `includeSubDomains`. Removing the header does not undo it. Start with a short `max-age`, such as `300`, raise it once HTTPS works everywhere, and add `includeSubDomains` only when every subdomain serves HTTPS. `headers.set` applies to every hostname that the instance serves.
-:::
 
 Each value is sent exactly as written. Quote a value that YAML could read differently: one that starts with a quote or contains `: ` or ` #`, as the Content Security Policy above does, and one that YAML reads as a number or a boolean, such as `1` or `true`, which is otherwise rejected:
 
@@ -158,11 +154,9 @@ level=warn event=http_request host=127.0.0.1 method=OPTIONS path=/ status=403 ..
 - **Enabling CORS changes the answer to `OPTIONS`.** Without `cors`, every `OPTIONS` request gets 405 Method Not Allowed. With it, an `OPTIONS` request that is not a valid preflight, such as one without `Origin`, gets 403 Forbidden.
 - **`Vary: Origin` multiplies cached copies.** CDNs and other caches that honor `Vary` keep a separate copy of each response per `Origin` value.
 - **Headers are the same for every path.** `headers.set` has no per-path rules: a policy written for HTML pages is also sent with images and scripts.
-- **The admin listener is not covered.** `headers.set` applies to the public listener only.
 
 ## Related pages
 
 - [Security model](../architecture/security.md#response-safety): response safety and the CORS model.
 - [Request flow and URL mapping](../architecture/request-flow.md#methods-and-cors-preflight): where preflights are answered.
 - [HTTP responses reference](../reference/http-responses.md#response-headers): every header statica sets.
-- [`headers` configuration reference](../reference/configuration.md#headers) and [`cors` configuration reference](../reference/configuration.md#cors)

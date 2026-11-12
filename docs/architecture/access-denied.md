@@ -8,6 +8,8 @@ Every origin response with status 403 to a GET or HEAD is a denial, whatever err
 
 S3 providers also use 403 for requests they cannot authenticate. AWS, for example, answers an unknown access key or a signature mismatch with 403. As a result, wrong credentials, a bucket policy that denies the read and a missing `s3:ListBucket` permission (see [below](#aws-without-s3-listbucket)) look the same: all are logged with `error_class=origin_denied` and counted with `result="denied"`. With the default `errors.access_denied: not_found`, wrong credentials make every URL that reads the bucket answer 404, and `config check-origin` reports `access denied`.
 
+statica does not retry a denied read. Within `s3.max_attempts`, the AWS SDK may retry a 403 whose error code and response `Date` point to a skewed local clock, after correcting its signing time.
+
 ## What statica does with a 403
 
 The diagram follows a 403 from the origin to the public response and to the signals that report it.
@@ -75,66 +77,17 @@ No serving path in statica lists a bucket. The permission matters only because i
 
 ## How a denial shows up
 
-### Logs
+With the default `not_found`, a denial is a 404 that looks like the ordinary 404s of crawlers and broken links: an alert on 5xx rates sees nothing. These signals tell it apart, whatever `errors.access_denied` says:
 
-The `http_request` access event of a denied request has `level=error` and:
+- **Logs.** The `http_request` event has `level=error`, `outcome=origin_failure`, [`error_class=origin_denied`](../reference/logs.md#error-class) and `termination_reason=origin_failure`, and no `resolution` or `origin_key` field, because no object was selected. A genuine missing object is logged at `info` with `outcome=success` and `resolution=not_found`.
+- **Metrics.** `statica_http_requests_total` counts the request with `outcome="origin_failure"`. [`statica_origin_operations_total`](../reference/metrics.md#statica-origin-operations-total), [`statica_origin_attempts_total`](../reference/metrics.md#statica-origin-attempts-total) and, for a shared fill, `statica_cache_fill_duration_seconds` count the origin call with `result="denied"`.
+- **Origin health check.** The check records the raw result `denied`, never `not_found`, and counts it as a failure in `statica_origin_health_checks_total{result="denied"}`: readiness stays or becomes not ready as for any other failure ([origin health](./lifecycle.md#origin-health)).
+- **`statica config check-origin`.** A 403 is always a failure: the command prints `statica: origin check failed: access denied` on standard error and exits with status 1.
 
-- `status=404` (or `status=502` with `bad_gateway`);
-- `outcome=origin_failure`;
-- [`error_class=origin_denied`](../reference/logs.md#error-class);
-- `termination_reason=origin_failure`;
-- no `resolution` and no `origin_key` field, because no object was selected.
-
-A genuine missing object, by contrast, is logged at `info` with `outcome=success` and `resolution=not_found`.
-
-### Metrics
-
-- `statica_http_requests_total` counts the request with `outcome="origin_failure"` and `status="404"` (or `"502"`).
-- [`statica_origin_operations_total`](../reference/metrics.md#statica-origin-operations-total) and [`statica_origin_attempts_total`](../reference/metrics.md#statica-origin-attempts-total) count the origin call with `result="denied"`, labeled by operation (`get` or `head`) and purpose (`request`, `cache_fill` or `health`).
-- `statica_cache_fill_duration_seconds` records a shared fill that the 403 ended with `result="denied"`.
-- `statica_origin_health_checks_total{result="denied"}` counts denied background health checks.
-
-### Origin health check
-
-When `admin.origin_health` is enabled, a background worker reads the metadata of `admin.origin_health.key` with a single-attempt HEAD request that bypasses the memory cache. A 403 gives the raw result `denied`, which counts as a failure:
-
-- before a first success, readiness stays not ready with the reason `origin_unknown`, and the worker logs `origin_health_check_failed` at `warn` with `result=denied` each time the result changes, not on every check;
-- after `admin.origin_health.failure_threshold` consecutive failures of a healthy origin, readiness becomes not ready with the reason `origin_unhealthy`, and the worker logs `origin_health_changed` at `error` with `result=denied`. When `admin.origin_health.max_staleness` passes since the last success before that threshold is reached, readiness first reports `origin_stale`.
-
-In each case [`/readyz`](../reference/admin-endpoints.md#readyz) answers 503 Service Unavailable with the reason.
-
-The health result is the raw origin answer: `errors.access_denied` never turns it into `not_found`.
-
-### `config check-origin`
-
-`statica config check-origin` reads `admin.origin_health.key` when it is set, or the `index` object otherwise, with a HEAD request (and a GET when a HEAD 404 is ambiguous). A 403 is always a failure, whatever `errors.access_denied` says: the command prints
-
-```text
-statica: origin check failed: access denied
-```
-
-on standard error and exits with status 1.
-
-## Why status-only monitoring misses it
-
-With the default `not_found`, a denial is a 404, which looks like the ordinary 404s that crawlers and broken links produce every day. An alert on 5xx rates sees nothing, and a 404 rate rarely stands out. Watch the outcome instead: `statica_http_requests_total{outcome="origin_failure"}`, `statica_origin_operations_total{result="denied"}`, the `error` level access events with `error_class=origin_denied`, and readiness when the origin health check is enabled. [Every URL answers 404](../guide/troubleshooting.md#every-url-answers-404) shows how to tell a denial from a wrong prefix.
-
-## What statica does not do
-
-- It does not offer a mode that treats a 403 as an absence and continues with the fallbacks.
-- It does not retry a denied read itself, list the bucket or change permissions. Within `s3.max_attempts`, the AWS SDK may retry a 403 whose error code and response `Date` point to a skewed local clock, after correcting its signing time.
-- It does not store a negative entry for a denied key or serve a stale copy of it.
-- It does not show the custom 404 page for a denied URL.
+[Every URL answers 404](../guide/troubleshooting.md#every-url-answers-404) shows how to tell a denial from a wrong prefix.
 
 ## Related pages
 
-- [Request flow and URL mapping](./request-flow.md): how other origin results map to responses.
-- [Memory cache](./memory-cache.md): negative entries and `stale_if_error`.
-- [Startup, readiness and shutdown](./lifecycle.md): readiness and the origin health check.
-- [SPA fallback](./spa-fallback.md): which lookups must end in a confirmed absence before the shell is served.
-- [Precompressed variants](./precompressed-variants.md): a denied sibling stops negotiation.
-- [Timeouts and long downloads](./timeouts.md): the other ways a request ends as an origin failure.
-- [Connect to S3 and S3-compatible providers](../guide/s3-providers.md#the-s3-listbucket-trade-off): the `s3:ListBucket` trade-off and the choice of `errors.access_denied`.
-- [Troubleshooting](../guide/troubleshooting.md#every-url-answers-404): from a 404 to its cause.
-- [Log reference](../reference/logs.md#error-class), [Metrics reference](../reference/metrics.md#origin) and [Admin endpoints reference](../reference/admin-endpoints.md#readyz): the fields, series and readiness reasons named on this page.
+- [Only a confirmed absence continues](./request-flow.md#only-a-confirmed-absence-continues): how the other origin results map to responses.
+- [Stale-if-error](./memory-cache.md#stale-if-error): the failures that can be answered with a stored copy.
 - [Configuration reference](../reference/configuration.md#errors-access-denied): `errors.access_denied`.

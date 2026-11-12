@@ -68,27 +68,13 @@ features:
     details: >-
       Startup validation, path confinement to the prefix, connection and
       concurrency caps without queueing, and bounded shutdown.
-    link: /architecture/#explicit-resource-limits
-    linkText: Resource limits
+    link: /architecture/#design-principles
+    linkText: Design principles
 ---
 
-## A minimal configuration
+## How it works
 
-This configuration serves the bucket `example-websites`, in the AWS region `eu-west-1`, as a website:
-
-<<< @/examples/minimal.yaml{yaml}
-
-Save it as `config.yaml` with your own bucket and region. With statica [installed](./guide/installation.md) and on your `PATH`, validate the file, check access to the bucket and start the server:
-
-```sh
-statica config validate --config config.yaml
-statica config check-origin --config config.yaml
-statica serve --config config.yaml
-```
-
-The defaults put the site on `127.0.0.1:8080` and the admin endpoints on `127.0.0.1:9090`, enable a memory cache of up to `128MiB`, and serve `index.html` for paths that end in `/`. The [Quickstart](./guide/quickstart.md) installs statica and walks through each step, [Configuration basics](./guide/configuration.md) explains the file, and [Configuration examples](./reference/examples.md) shows complete configurations for single-page apps, TLS and reverse proxies.
-
-## How it fits
+**statica** maps the path of each request to an object key in one S3 bucket, or under a prefix inside it, and answers from a bounded memory cache that reads the bucket only when it holds no usable copy.
 
 Visitors reach the public listener directly or through a CDN or ingress, and orchestrators and Prometheus use a separate admin listener.
 
@@ -112,11 +98,74 @@ flowchart LR
   O -->|"/livez, /readyz,<br/>/metrics"| A
 ```
 
-One instance serves one site, and instances that serve the same site keep separate memory caches. Because statica authenticates through the standard AWS credential chain and sends only `GetObject` and `HeadObject` requests, the bucket can stay private and read-only.
+- **One instance, one site.** The `Host` header never selects content, and instances that serve the same site keep separate memory caches.
+- **A read-only origin.** statica authenticates through the standard AWS credential chain and sends only `GetObject` and `HeadObject` requests, so the bucket can stay private.
+- **Explicit limits.** Connections, concurrent requests, shared fills and cache memory each have a configured ceiling, and statica refuses work instead of queueing it.
 
-## Where to go next
+[Architecture](./architecture/index.md) follows a request through each component.
 
-- [What is statica?](./guide/what-is-statica.md): the problem it solves, its capabilities, and [what it leaves to other tools](./guide/what-is-statica.md#what-statica-does-not-do).
-- [Quickstart](./guide/quickstart.md) and [Installation](./guide/installation.md): run the release binary, the container image or a build from source.
-- [Architecture](./architecture/index.md): how a request is mapped to objects, how the memory cache works, and how statica starts and shuts down.
-- [Reference](./reference/configuration.md) and [Examples](./reference/examples.md): every configuration field, CLI command, HTTP response, log event and metric, alongside complete example configurations.
+## Quick start
+
+Save [a minimal configuration](#a-minimal-configuration) as `config.yaml`, with your own bucket and region, and put credentials that can read the bucket in the AWS environment variables of your shell.
+
+
+**Docker:**
+
+```sh
+docker run --rm --read-only -p 8080:8080 \
+  -v "$PWD/config.yaml:/etc/statica/config.yaml:ro" \
+  -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY \
+  ghcr.io/gtriggiano/statica:{{VERSION}}
+```
+
+**Binary:**
+
+Download the build for your platform:
+
+::: code-group
+
+```sh [Linux amd64]
+curl -fsSL https://github.com/gtriggiano/statica/releases/download/v{{VERSION}}/statica_{{VERSION}}_linux_amd64.tar.gz | tar -xz statica
+sudo install -m 0755 statica /usr/local/bin/statica
+```
+
+```sh [Linux arm64]
+curl -fsSL https://github.com/gtriggiano/statica/releases/download/v{{VERSION}}/statica_{{VERSION}}_linux_arm64.tar.gz | tar -xz statica
+sudo install -m 0755 statica /usr/local/bin/statica
+```
+
+```sh [macOS amd64]
+curl -fsSL https://github.com/gtriggiano/statica/releases/download/v{{VERSION}}/statica_{{VERSION}}_darwin_amd64.tar.gz | tar -xz statica
+sudo install -m 0755 statica /usr/local/bin/statica
+```
+
+```sh [macOS arm64]
+curl -fsSL https://github.com/gtriggiano/statica/releases/download/v{{VERSION}}/statica_{{VERSION}}_darwin_arm64.tar.gz | tar -xz statica
+sudo install -m 0755 statica /usr/local/bin/statica
+```
+
+:::
+
+
+Then check the access to the bucket and start the server:
+
+```sh
+statica config check-origin --config config.yaml
+statica serve --config config.yaml
+```
+
+Either way, the site is on `http://127.0.0.1:8080/`. The [Quickstart](./guide/quickstart.md) walks through each step, [Installation](./guide/installation.md) verifies a download and builds from source, and [Deploy on Kubernetes](./guide/kubernetes.md) has complete manifests.
+
+## A minimal configuration
+
+Only `s3.bucket` is required; set `s3.region` too, unless the AWS configuration of the environment provides it. A container also needs both listen addresses, because the defaults accept connections from the local machine only:
+
+::: code-group
+
+<<< @/examples/minimal.yaml{yaml} [Binary]
+
+<<< @/examples/container.yaml{yaml} [Docker]
+
+:::
+
+The defaults enable a memory cache of up to `128MiB` and serve `index.html` for paths that end in `/`. [Configuration basics](./guide/configuration.md) explains the file, [Configuration examples](./reference/examples.md) shows complete configurations for single-page apps, TLS and reverse proxies, and the [configuration reference](./reference/configuration.md) lists every field.

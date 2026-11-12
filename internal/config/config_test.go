@@ -58,10 +58,23 @@ func TestExplicitZerosAndFalseRemain(t *testing.T) {
 	}
 }
 
+// TestRepositoryExamples loads every file in docs/examples/ as a complete
+// configuration. The only environment variable an example can read is
+// SITE_BUCKET: an example that needs another one fails here.
 func TestRepositoryExamples(t *testing.T) {
-	for _, name := range []string{"minimal", "advanced", "local-s3", "container"} {
-		t.Run(name, func(t *testing.T) {
-			data, err := os.ReadFile(filepath.Join("..", "..", "docs", "examples", name+".yaml"))
+	files, err := filepath.Glob(filepath.Join("..", "..", "docs", "examples", "*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) == 0 {
+		t.Fatal("no file in docs/examples/")
+	}
+	for _, file := range files {
+		t.Run(filepath.Base(file), func(t *testing.T) {
+			if filepath.Ext(file) != ".yaml" {
+				t.Fatal("docs/examples/ holds complete configurations only, as .yaml files")
+			}
+			data, err := os.ReadFile(file)
 			if err != nil {
 				t.Fatal(err)
 			}

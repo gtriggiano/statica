@@ -1,3 +1,7 @@
+---
+description: "How statica selects a precompressed Brotli or gzip copy of an object for each request, and what it sends when none fits."
+---
+
 # Precompressed variants
 
 Compression happens when you publish, not when **statica** serves: you publish compressed copies next to each object, such as a Brotli copy `app.js.br` and a gzip copy `app.js.gz` next to `app.js`, and statica serves them. With `compression.mode: precompressed`, statica chooses, for each request, the representation the client prefers among those that exist, and labels it with `Content-Encoding`. With `compression.mode: off`, it reads only the canonical object, the one the URL names, but it still respects that object's own declared encoding and the client's `Accept-Encoding`. [Serve precompressed files](../guide/precompressed-files.md) shows how to produce and upload the variants.
@@ -19,7 +23,7 @@ compression:
 
 ## Sibling naming
 
-A sibling's object key is the canonical key plus a fixed suffix: `.br` for Brotli and `.gz` for gzip. For the URL `/guide/` with the index object `index.html`, the candidates are `guide/index.html`, `guide/index.html.br` and `guide/index.html.gz` (under the publication prefix). Every object statica resolves is negotiated this way: ordinary objects, index objects, the SPA shell and the custom 404 page.
+A sibling's object key is the canonical key plus a fixed suffix: `.br` for Brotli and `.gz` for gzip. For the URL `/guide/` with the index object `index.html`, the candidates are `guide/index.html`, `guide/index.html.br` and `guide/index.html.gz` (under the publication prefix). Every object statica resolves is negotiated this way: ordinary objects, index objects, the SPA shell and the custom 404 page. statica does not check that a sibling holds the same content as its canonical object: publish them together.
 
 ## Negotiation
 
@@ -126,7 +130,7 @@ Every response built from resolution carries `Vary: Accept-Encoding`, in both mo
 - Without sibling discovery (`off` mode, or a request without `Accept-Encoding`), each logical object costs one key.
 - With discovery, each logical object costs the canonical key plus one key per acceptable configured coding, tried in order until one exists: at most three keys. A URL can involve up to four logical objects (exact key, index key, SPA shell, custom 404 page), so resolving a request reads at most twelve distinct keys, and never looks up the same key twice.
 - Missing siblings become negative entries for `cache.negative_ttl`, like any missing object. Objects you do not publish variants for, such as images, still cost their sibling lookups again whenever those entries expire.
-- S3 answers a HEAD for a missing key with a 404 that does not say why, so for a HEAD request statica confirms the absence with a GET. A missing key that is not in memory can then cost two origin operations.
+- For a HEAD request, a missing key that is not in memory costs two origin operations: the HEAD and the GET that confirms the absence ([HEAD requests](./memory-cache.md#head-requests)).
 - `statica_origin_operations_total` counts these lookups by operation, result (for example `not_found`) and purpose.
 
 ## An encoded canonical object
@@ -138,26 +142,7 @@ A canonical object whose metadata declares `Content-Encoding: gzip` or `Content-
 - A declared `Content-Encoding` of `identity` means no encoding: statica does not forward the header.
 - Any other declared value, such as `deflate` or a list like `gzip, br`, is an invalid origin response: the request fails with 502 Bad Gateway, in both modes.
 
-## Unsupported modes
-
-`off` and `precompressed` are the only modes. Configuration validation, which runs before statica starts, rejects any other value of `compression.mode`, so a configuration that names a mode statica does not implement fails validation instead of being silently ignored.
-
-## What statica does not do
-
-- It does not compress responses or decompress stored objects.
-- It does not serve codings other than `br` and `gzip`, such as `deflate` or `zstd`.
-- It does not check that variants hold the same content as the canonical object: publish them together, for example under a release prefix.
-- It does not look for siblings when the request has no `Accept-Encoding`.
-- It does not choose a variant by size, and it does not derive ETags.
-
 ## Related pages
 
-- [Request flow and URL mapping](./request-flow.md): the candidates each URL resolves through.
-- [Memory cache](./memory-cache.md): entries, negative entries and limits.
-- [Cache-Control and Age](./cache-control.md): how each variant's `Cache-Control` reaches the client.
-- [SPA fallback](./spa-fallback.md): `Vary: Accept` on SPA routes.
-- [Ranges and conditional requests](./ranges-and-conditionals.md).
 - [Access denied](./access-denied.md): why a 403 on a sibling does not fall back to the canonical object.
-- [Serve precompressed files](../guide/precompressed-files.md): producing, uploading and checking the variants.
-- [HTTP responses reference](../reference/http-responses.md): the `Vary`, `Content-Encoding` and status of each response.
 - [Configuration reference](../reference/configuration.md#compression): the `compression` keys.

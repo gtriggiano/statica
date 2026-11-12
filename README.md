@@ -37,21 +37,17 @@ Check that statica can read `index.html`, then start the server with the contain
 
 <!-- x-release-please-start-version -->
 ```sh
-IMAGE=ghcr.io/gtriggiano/statica:1.0.0
+docker run --rm -v "$PWD/config.yaml:/etc/statica/config.yaml:ro" \
+  -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY \
+  ghcr.io/gtriggiano/statica:1.0.0 config check-origin
+docker run --rm --read-only -p 8080:8080 \
+  -v "$PWD/config.yaml:/etc/statica/config.yaml:ro" \
+  -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY \
+  ghcr.io/gtriggiano/statica:1.0.0
 ```
 <!-- x-release-please-end -->
 
-```sh
-docker run --rm -v "$PWD/config.yaml:/etc/statica/config.yaml:ro" \
-  -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY \
-  "$IMAGE" config check-origin
-docker run --rm --read-only -p 8080:8080 -p 127.0.0.1:9090:9090 \
-  -v "$PWD/config.yaml:/etc/statica/config.yaml:ro" \
-  -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY \
-  "$IMAGE"
-```
-
-The site is served on `http://127.0.0.1:8080/`, and `/livez`, `/readyz` and `/metrics` on `http://127.0.0.1:9090/`. Stop the server with Ctrl-C. The [installation guide](docs/guide/installation.md) covers the release binaries for Linux and macOS, their verification and the build from source, and the [quickstart guide](docs/guide/quickstart.md) explains each step.
+The site is served on `http://127.0.0.1:8080/`. Port `9090` of the container has `/livez`, `/readyz` and `/metrics`, without authentication: publish it only to your health checks and to Prometheus. Stop the server with Ctrl-C. The [installation guide](docs/guide/installation.md) covers the release binaries for Linux and macOS, their verification and the build from source, and the [quickstart guide](docs/guide/quickstart.md) explains each step.
 
 ## Documentation
 
@@ -61,6 +57,8 @@ The documentation is published at <https://gtriggiano.github.io/statica/>, with 
 - [Architecture](docs/architecture/index.md): how requests, the memory cache and the process lifecycle work.
 - [Reference](docs/reference/configuration.md): configuration fields, CLI commands, HTTP responses, logs, metrics, admin endpoints, the container image, versioning and the changelog.
 - [Examples](docs/examples/): complete configuration files, validated by the test suite.
+
+An AI coding agent can configure and deploy statica with the [`deploy-statica`](skills/deploy-statica/SKILL.md) skill: install it with `npx skills add https://gtriggiano.github.io/statica`. The site also publishes [`llms.txt`](https://gtriggiano.github.io/statica/llms.txt) and a Markdown version of every page ([Configure statica with an AI agent](docs/guide/ai-agents.md)).
 
 To preview the site locally, run `make docs-install` once, then `make docs-dev`, or `make docs-build` followed by `make docs-preview` for the production build.
 

@@ -1,3 +1,7 @@
+---
+description: "How statica decides whether a missing path gets the single-page application shell or a 404."
+---
+
 # SPA fallback
 
 A single-page application (SPA) routes its URLs in the browser. When a visitor opens or reloads a deep link such as `/app/orders/42`, the browser asks **statica** for a URL that usually has no object in the bucket. The optional `spa` configuration block lets statica answer such a request with the application shell, an object you name (typically `index.html`), at the original URL and with status 200 OK, so that the application can start and render the route itself. The fallback is opt-in. It applies only to browser navigations on eligible routes: paths under `spa.include_prefixes` or, when that list is omitted, every path whose last segment has no dot. It runs only after statica has confirmed that no object answers the URL. [Serve a single-page application](../guide/single-page-apps.md) shows how to configure it for an application.
@@ -36,13 +40,7 @@ flowchart TD
 
 ## Where the fallback sits
 
-For each GET or HEAD request, statica resolves the URL in a fixed order. Other methods are rejected before any lookup.
-
-1. Configured redirect rules (`redirects`) run first. A matching rule answers without reading the bucket, so it always wins over the fallback.
-2. Resolution looks up the exact object key. For a path that ends in `/`, it looks up the index object (`index`) under that path instead.
-3. For a path without a trailing slash whose exact key is absent, statica looks up the index object under the path. If it exists, the answer is 308 Permanent Redirect to the path with a trailing slash.
-4. If `spa` is configured and the request is eligible, statica reads the shell.
-5. Otherwise statica reads the custom 404 page (`not_found`) if one is configured, and answers 404 Not Found with it, or with statica's built-in body.
+The shell is the third candidate of [resolution](./request-flow.md#from-path-to-object): redirect rules, the exact key, and the index object with its 308 to the trailing-slash path all come first, and the custom 404 page comes after.
 
 Only a confirmed absence moves resolution to the next step: the origin's definite "no such key" answer, or a negative entry in the memory cache. Any other result for any of these keys, such as a timeout, a provider error or a 403 Forbidden, ends resolution with an error response. The shell never replaces an error. See [Access denied](./access-denied.md) for the 403 case.
 
@@ -147,22 +145,7 @@ Every eligible URL that has no object returns status 200 with the shell, includi
 - Without `include_prefixes`, a route whose last segment contains a dot gets a 404 instead of the shell.
 - Under an included prefix, a missing asset opened directly in a browser tab receives the shell, because the browser then sends `Accept: text/html`. Exclude asset namespaces to keep those 404s.
 
-## What statica does not do
-
-- It does not know your application's routes and cannot answer 404 for a route the application does not have.
-- It does not redirect to the shell or rewrite the URL.
-- It does not serve the shell for `*/*`, `text/*` or non-HTML requests.
-- It does not fall back to the shell when the origin fails or denies access.
-- It does not infer that a site is an SPA because `index.html` exists: without an `spa` block, there is no fallback.
-- It does not store the shell once per route: all routes share one memory cache entry, although each route's confirmed absences still become negative entries. No metric has a route label.
-
 ## Related pages
 
-- [Request flow and URL mapping](./request-flow.md): the full resolution order and what counts as a confirmed absence.
-- [Memory cache](./memory-cache.md): negative entries and cache rules.
-- [Cache-Control and Age](./cache-control.md): why generated and fallback responses use `no-store`.
-- [Precompressed variants](./precompressed-variants.md): how the shell's variants are negotiated and how `Vary: Accept-Encoding` combines with `Vary: Accept`.
-- [Access denied](./access-denied.md): why a 403 never reaches the fallback.
-- [Ranges and conditional requests](./ranges-and-conditionals.md).
-- [Serve a single-page application](../guide/single-page-apps.md): setting up the fallback, step by step.
+- [Negative entries](./memory-cache.md#negative-entries): how confirmed absences are kept in memory.
 - [Configuration reference](../reference/configuration.md#spa): the `spa` keys.

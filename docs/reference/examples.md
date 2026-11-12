@@ -1,6 +1,10 @@
+---
+description: "Complete, tested configuration files: minimal, container, Kubernetes, S3-compatible server and a production-style example."
+---
+
 # Configuration examples
 
-The repository ships four complete configuration files in `docs/examples/`. A Go test loads and validates each of them, so they stay valid as **statica** changes. This page shows each file and what you need to change before you use it. The [configuration reference](./configuration.md) describes every field, and [Configuration basics](../guide/configuration.md) explains the format, defaults and environment variables.
+The repository ships five complete configuration files in `docs/examples/`. A Go test loads and validates each of them, so they stay valid as **statica** changes. This page shows each file and what you need to change before you use it. The [configuration reference](./configuration.md) describes every field, and [Configuration basics](../guide/configuration.md) explains the format, defaults and environment variables.
 
 Check a file before you run it:
 
@@ -39,6 +43,23 @@ The minimal configuration, for the [container image](./container-image.md):
 
 Adapt it as the minimal configuration, and publish or expose port `9090` only to your health checks and Prometheus: the admin endpoints have no authentication ([the admin listener](../architecture/security.md#the-admin-listener)).
 
+## Kubernetes
+
+<<< @/examples/kubernetes.yaml{yaml}
+
+The configuration that [Deploy on Kubernetes](../guide/kubernetes.md) mounts from a ConfigMap, next to its manifests:
+
+- [`hosts`](./configuration.md#hosts) accepts only `www.example.com`, which also bounds the `host` label of the metrics.
+- [`server.listen`](./configuration.md#server-listen) and [`admin.listen`](./configuration.md#admin-listen) are on every interface of the pod.
+- [`server.trusted_proxies`](./configuration.md#server-trusted-proxies) trusts the pod network, `10.244.0.0/16`, from which the ingress controller connects.
+- [`server.shutdown_timeout`](./configuration.md#server-shutdown-timeout), [`cache.max_bytes`](./configuration.md#cache-max-bytes) and [`cache.max_fill_bytes`](./configuration.md#cache-max-fill-bytes) repeat the defaults, because the pod's grace period and memory limit follow them.
+
+Adapt it:
+
+- Set the hostnames, the bucket and its region.
+- Set `server.trusted_proxies` to your cluster's pod network, and keep it only with a NetworkPolicy that lets nothing but the ingress controller reach port `8080` ([Restrict the network](../guide/kubernetes.md#restrict-the-network)). Otherwise remove it.
+- When you change `server.shutdown_timeout` or the cache limits, change the manifests with them ([Size the memory](../guide/kubernetes.md#size-the-memory)).
+
 ## Local S3-compatible server
 
 <<< @/examples/local-s3.yaml{yaml}
@@ -67,6 +88,7 @@ A production-style instance that terminates TLS behind a load balancer. Most val
 - **Hosts.** [`hosts`](./configuration.md#hosts) accepts only `docs.example.com` and `www.docs.example.com`; other hostnames get 421. It also bounds the `host` label of the metrics.
 - **TLS.** [`server.listen`](./configuration.md#server-listen) binds port 8443 on every interface, and [`server.tls`](./configuration.md#server-tls) serves HTTPS with the certificate chain and key in `/run/tls/`, with HTTP/2.
 - **Proxies.** [`server.trusted_proxies`](./configuration.md#server-trusted-proxies) trusts the load balancer's network, `10.20.0.0/16`: statica takes the client IP from its `X-Forwarded-For` and the request ID from its `X-Request-ID`.
+- **Admin listener.** [`admin.listen`](./configuration.md#admin-listen) binds port 9090 on every interface, so that probes and Prometheus on other machines or containers can reach it.
 - **Origin health.** [`admin.origin_health`](./configuration.md#admin-origin-health) checks `health.txt` about every 30 seconds, and `/readyz` reports not ready until the first check succeeds.
 - **Origin.** [`s3.bucket`](./configuration.md#s3-bucket) comes from the `SITE_BUCKET` environment variable ([environment variables](./configuration.md#environment-variables)), and [`s3.prefix`](./configuration.md#s3-prefix) selects one release of the site, `docs/releases/2026-11-06/`.
 - **Cache rules.** [`cache.rules`](./configuration.md#cache-rules) keep objects under `/assets/` fresh in memory for up to one hour, and never cache `/health.txt` for visitors. The origin health check never uses the memory cache anyway.
@@ -76,7 +98,7 @@ A production-style instance that terminates TLS behind a load balancer. Most val
 - **Headers.** [`headers.set`](./configuration.md#headers-set) adds `Referrer-Policy` to every response.
 - **Browser caching.** The [`cache_control`](./configuration.md#cache-control) rule tells browsers to keep `/assets/` for a year; other paths follow the origin's metadata (`auto`).
 
-`errors.access_denied`, `cache_control.default` and the `observability` block, including the list of redacted query parameters, repeat the defaults.
+`errors.access_denied`, `cache_control.default` and the `observability` block, including the list of redacted query parameters, repeat the defaults. The file sets no `spa` and no `cors` block: [Serve a single-page application](../guide/single-page-apps.md) and [Response headers and CORS](../guide/headers-and-cors.md) show them.
 
 Adapt it:
 
@@ -84,5 +106,5 @@ Adapt it:
 - Replace the hostnames, the certificate and key paths, and the proxy network with yours. `config validate` and `serve` read the TLS files and fail without them; `config print` shows the configuration without reading them.
 - Set `server.client_ip_header` and `server.request_id_header` to the headers your load balancer actually sends.
 - Publish `health.txt` and `404.html` under the release prefix, and the `.br` and `.gz` variants you want served. Without `health.txt`, readiness never becomes ready.
-- Keep the admin listener on loopback, or bind it to a private address that your orchestrator and Prometheus can reach: probes from another machine or container cannot reach `127.0.0.1`.
+- Let only your orchestrator and Prometheus reach port 9090, with a firewall or a network policy: the admin endpoints have no authentication. When they run on the same machine as statica, bind `admin.listen` to `127.0.0.1:9090` instead.
 - Replace the redirect rule, the header and the cache rules with your own.

@@ -25,7 +25,7 @@ The admin listener answers two probes from in-memory state. Neither contacts the
 | `origin_unhealthy` | The origin health check failed `failure_threshold` times in a row and has not recovered. |
 | `origin_stale` | The last successful origin health check is older than `max_staleness`. |
 
-One more reason, `initializing`, exists but probes do not normally see it: the admin listener starts answering only once both listeners are bound. Without the origin health check, an instance is ready from the moment it binds its listeners until a shutdown starts.
+Without the origin health check, an instance is ready from the moment it binds its listeners until a shutdown starts.
 
 Readiness does not gate the public listener. A not-ready instance keeps serving every request it receives, from its memory cache when it can; readiness only tells your orchestrator or load balancer where to send traffic ([readiness does not gate public requests](../architecture/lifecycle.md#readiness-does-not-gate-public-requests)).
 
@@ -36,11 +36,11 @@ Readiness does not gate the public listener. A not-ready instance keeps serving 
 - Never use `/readyz` for liveness: an origin outage, or a long drain, would make your supervisor restart instances that are working.
 - The admin listener accepts at most 16 connections and has its own short time limits, independent of the public listener, so probes keep answering while the public listener is at capacity ([fixed limits](../reference/admin-endpoints.md#fixed-limits)).
 
-[Deploy, roll out and shut down](./deployment.md#kubernetes) shows a Kubernetes fragment with both probes. A load balancer that can reach only the public listener can check an ordinary page instead, but that check is logged and counted like any visitor request.
+[Deploy on Kubernetes](./kubernetes.md) shows both probes in a Deployment. A load balancer that can reach only the public listener can check an ordinary page instead, but that check is logged and counted like any visitor request.
 
 ## Decide whether readiness follows the origin
 
-Without [`admin.origin_health`](../reference/configuration.md#admin-origin-health), readiness follows the process alone. statica does not check its credentials or its bucket at startup, so an instance with wrong credentials becomes ready and then fails the requests that need the origin.
+Without [`admin.origin_health`](../reference/configuration.md#admin-origin-health), readiness follows the process alone. statica does not check its credentials or its bucket at startup ([check a configuration](./configuration.md#check-a-configuration)), so an instance with wrong credentials becomes ready and then fails the requests that need the origin.
 
 With the origin health check enabled, a background worker reads the metadata of one object at a regular interval, and readiness follows its results.
 
@@ -57,7 +57,6 @@ Instances that share an origin see its outage at about the same time. With the o
 
 ```yaml [config.yaml]
 admin:
-  listen: 10.0.12.20:9090
   origin_health:
     enabled: true
     key: health/ok.txt
@@ -71,7 +70,7 @@ admin:
 Choose a small object that always exists under the publication prefix and that no publication removes, such as `health/ok.txt`. If you publish each release under its own prefix, include it in every release ([Publish a site to S3](./publishing.md)).
 
 - The check sends one `HEAD` request: it reads the object's metadata, never its body, and never uses the memory cache. So no `cache.rules` entry is needed for the key.
-- A missing key never counts as healthy. On providers that answer 404, and on AWS with `s3:ListBucket`, S3 answers a `HEAD` for a missing object with a 404 that cannot say whether the object is missing, so the result is `ambiguous_not_found`, never `not_found`. On AWS without `s3:ListBucket`, the answer is 403 and the result is `denied` ([the `s3:ListBucket` trade-off](./s3-providers.md#the-s3-listbucket-trade-off)).
+- A missing key never counts as healthy: readiness stays `origin_unknown`, with the result `ambiguous_not_found`, or `denied` on AWS without `s3:ListBucket` ([the `s3:ListBucket` trade-off](./s3-providers.md#the-s3-listbucket-trade-off)).
 - The result is the origin's raw answer. A 403 Forbidden is `denied`, even though visitors receive 404 Not Found with `errors.access_denied: not_found`.
 - The check uses the same credentials as the site. A key that a bucket policy denies, but that visitors never request, makes readiness fail while the site works.
 
@@ -85,7 +84,7 @@ Choose a small object that always exists under the publication prefix and that n
 | [`success_threshold`](../reference/configuration.md#admin-origin-health-success-threshold) (`1`) | Consecutive successes that make an unhealthy origin healthy again. The first success after startup is enough, whatever this value. |
 | [`max_staleness`](../reference/configuration.md#admin-origin-health-max-staleness) (`90s`) | Age of the last success beyond which readiness reports `origin_stale`. Must exceed `interval` plus `timeout`. |
 
-The timing that follows from them ([timing with the defaults](../architecture/lifecycle.md#timing-with-the-defaults)):
+The timing that follows from them ([timing with the defaults](../architecture/lifecycle.md#origin-health)):
 
 - **At startup**, the first check runs as soon as both listeners are bound. A healthy origin makes the instance ready within that check's duration, at most `timeout`. If it fails, the next check starts about one `interval` later.
 - **When the origin breaks**, readiness turns false at the earlier of two moments: the `failure_threshold`-th consecutive failure, about `failure_threshold` × `interval` after the last success, and `max_staleness` after the last success. So readiness is false at most `max_staleness` after the last success: 90 s with the defaults.
@@ -104,7 +103,7 @@ ts=2026-11-08T00:17:32.951Z level=info event=startup ... origin_health=on origin
 Probe readiness:
 
 ```sh
-curl -sS -w '%{http_code}\n' http://10.0.12.20:9090/readyz
+curl -sS -w '%{http_code}\n' http://127.0.0.1:9090/readyz
 ```
 
 The command prints the body, then the status:
@@ -146,26 +145,16 @@ statica_origin_health_last_success_timestamp_seconds 1.794097939081934e+09
 
 | Result | Likely cause |
 | --- | --- |
-| `ambiguous_not_found` | On providers that answer 404, and on AWS with `s3:ListBucket`: the key does not exist under the publication prefix, or the bucket does not exist. A 404 to a `HEAD` says neither; `statica config check-origin` tells them apart. |
+| `ambiguous_not_found` | The key does not exist under the publication prefix, or the bucket does not exist: `statica config check-origin` tells them apart. |
 | `denied` | The credentials, or a bucket policy, deny the read; or, on AWS without `s3:ListBucket`, the key does not exist. |
-| `configuration` | The origin named the bucket, endpoint or credentials in an error code. Rare: an answer to a `HEAD` has no body to carry an error code. |
+| `configuration` | The origin named the bucket, endpoint or credentials in an error code. |
 | `unavailable` | The origin is unreachable or answers with server errors, credentials are missing, or the region or endpoint is wrong. |
 | `throttled` | The origin throttles requests. |
 | `timeout` | No answer within `timeout`. |
 | `failed` | Any other error, such as an invalid response: metadata with control characters or an invalid `Last-Modified`. |
 
-## Pitfalls
-
-- **A block without `enabled: true`.** The `startup` event says `origin_health=off` and `statica_origin_health_enabled` is 0.
-- **A missing key.** Readiness never becomes ready: `origin_unknown` forever, with `result=ambiguous_not_found` on providers that answer 404 and on AWS with `s3:ListBucket`, or `result=denied` on AWS without it.
-- **Probes on loopback.** A prober on another host or in another container cannot reach the default `127.0.0.1:9090`.
-- **Draining looks like a failure.** `/readyz` answers 503 `not ready: draining` as soon as a shutdown starts, while the instance still finishes its requests.
-
 ## Related pages
 
-- [Startup, readiness and shutdown](../architecture/lifecycle.md#readiness-and-liveness): readiness phases, origin health states and their timing.
-- [Admin endpoints reference](../reference/admin-endpoints.md).
-- [Origin health results](../reference/logs.md#origin-health-results).
-- [Deploy, roll out and shut down](./deployment.md).
-- [Monitor with Prometheus](./metrics.md#readiness-and-origin-health).
+- [Startup, readiness and shutdown](../architecture/lifecycle.md#readiness-and-liveness): readiness phases and origin health states.
+- [Monitor with Prometheus](./metrics.md#readiness-and-origin-health): the readiness and origin health series.
 - [Troubleshooting](./troubleshooting.md#readiness-stays-not-ready): readiness that stays not ready.

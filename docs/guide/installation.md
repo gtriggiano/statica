@@ -8,22 +8,14 @@ Install **statica** from the container image, from a release archive, or by buil
 | [Release archive](#release-archive) | Linux and macOS, amd64 and arm64 |
 | [Build from source](#build-from-source) | Any platform with Go 1.27.4 or later |
 
-The commands on this page install the release that this documentation describes. Set the `VERSION` variable that they use:
-
-<!-- x-release-please-start-version -->
-```sh
-VERSION=1.0.0
-```
-<!-- x-release-please-end -->
-
-To install another release, set `VERSION` to it. Every release is listed on the [releases page](https://github.com/gtriggiano/statica/releases), and [Versioning](../reference/versioning.md) explains what a version number promises.
+The commands on this page install the release that this documentation describes. Every release is listed on the [releases page](https://github.com/gtriggiano/statica/releases), and [Versioning](../reference/versioning.md) explains what a version number promises.
 
 ## Container image
 
 The image `ghcr.io/gtriggiano/statica` is public: pulling it needs no login.
 
 ```sh
-docker pull "ghcr.io/gtriggiano/statica:${VERSION}"
+docker pull ghcr.io/gtriggiano/statica:{{VERSION}}
 ```
 
 The image runs `statica serve` and reads its configuration from `/etc/statica/config.yaml`. It runs as an unprivileged user, has no shell, and statica writes nothing to disk, so it works with a read-only root filesystem. The [container image reference](../reference/container-image.md) lists its tags, paths and labels.
@@ -36,14 +28,14 @@ Start from this configuration, with your bucket and its region:
 
 <<< @/examples/container.yaml{yaml}
 
-Save it as `config.yaml`, mount it into the container and give statica your credentials through the standard AWS credential chain, here with the AWS environment variables of your shell:
+Save it as `config.yaml`, mount it into the container and give statica your credentials through the [standard AWS credential chain](./s3-providers.md#provide-credentials), here with the access key in the environment variables of your shell:
 
 ```sh
 docker run --rm --read-only \
   -p 8080:8080 -p 127.0.0.1:9090:9090 \
   -v "$PWD/config.yaml:/etc/statica/config.yaml:ro" \
-  -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN \
-  "ghcr.io/gtriggiano/statica:${VERSION}"
+  -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY \
+  ghcr.io/gtriggiano/statica:{{VERSION}}
 ```
 
 The site is on `http://127.0.0.1:8080/`. The admin port is published on the host's loopback address only: the admin endpoints have no authentication ([the admin listener](../architecture/security.md#the-admin-listener)).
@@ -53,35 +45,55 @@ Run another command by giving it after the image name, for example to check the 
 ```sh
 docker run --rm \
   -v "$PWD/config.yaml:/etc/statica/config.yaml:ro" \
-  -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN \
-  "ghcr.io/gtriggiano/statica:${VERSION}" config check-origin
+  -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY \
+  ghcr.io/gtriggiano/statica:{{VERSION}} config check-origin
 ```
 
-In production, refer to the image by the digest given in the release notes, which never changes, or by the version tag: tags such as `latest` move to newer releases. [Deploy, roll out and shut down](./deployment.md#kubernetes) has a Kubernetes example.
+In production, refer to the image by the digest given in the release notes, which never changes, or by the version tag: tags such as `latest` move to newer releases. [Deploy on Kubernetes](./kubernetes.md) has complete manifests.
 
 ## Release archive
 
-Each release attaches an archive per platform, with the `statica` binary, the license, the README and the changelog. Download the archive for your system and the checksums file:
+Each release attaches an archive per platform, with the `statica` binary, the license, the README and the changelog. Download the archive for your platform and the checksums file, check the archive, then extract and install the binary:
 
-```sh
-OS=linux     # or darwin for macOS
-ARCH=amd64   # or arm64
-curl -fLO "https://github.com/gtriggiano/statica/releases/download/v${VERSION}/statica_${VERSION}_${OS}_${ARCH}.tar.gz"
-curl -fLO "https://github.com/gtriggiano/statica/releases/download/v${VERSION}/statica_${VERSION}_checksums.txt"
-```
+::: code-group
 
-Check the archive against the checksums file, with `sha256sum` on Linux or `shasum` on macOS. The command prints `OK` for the archive:
-
-```sh
-sha256sum --check --ignore-missing "statica_${VERSION}_checksums.txt"
-shasum -a 256 --check --ignore-missing "statica_${VERSION}_checksums.txt"
-```
-
-Extract the binary, install it and check it:
-
-```sh
-tar -xzf "statica_${VERSION}_${OS}_${ARCH}.tar.gz" statica
+```sh [Linux amd64]
+curl -fLO https://github.com/gtriggiano/statica/releases/download/v{{VERSION}}/statica_{{VERSION}}_linux_amd64.tar.gz
+curl -fLO https://github.com/gtriggiano/statica/releases/download/v{{VERSION}}/statica_{{VERSION}}_checksums.txt
+sha256sum --check --ignore-missing statica_{{VERSION}}_checksums.txt
+tar -xzf statica_{{VERSION}}_linux_amd64.tar.gz statica
 sudo install -m 0755 statica /usr/local/bin/statica
+```
+
+```sh [Linux arm64]
+curl -fLO https://github.com/gtriggiano/statica/releases/download/v{{VERSION}}/statica_{{VERSION}}_linux_arm64.tar.gz
+curl -fLO https://github.com/gtriggiano/statica/releases/download/v{{VERSION}}/statica_{{VERSION}}_checksums.txt
+sha256sum --check --ignore-missing statica_{{VERSION}}_checksums.txt
+tar -xzf statica_{{VERSION}}_linux_arm64.tar.gz statica
+sudo install -m 0755 statica /usr/local/bin/statica
+```
+
+```sh [macOS amd64]
+curl -fLO https://github.com/gtriggiano/statica/releases/download/v{{VERSION}}/statica_{{VERSION}}_darwin_amd64.tar.gz
+curl -fLO https://github.com/gtriggiano/statica/releases/download/v{{VERSION}}/statica_{{VERSION}}_checksums.txt
+shasum -a 256 --check --ignore-missing statica_{{VERSION}}_checksums.txt
+tar -xzf statica_{{VERSION}}_darwin_amd64.tar.gz statica
+sudo install -m 0755 statica /usr/local/bin/statica
+```
+
+```sh [macOS arm64]
+curl -fLO https://github.com/gtriggiano/statica/releases/download/v{{VERSION}}/statica_{{VERSION}}_darwin_arm64.tar.gz
+curl -fLO https://github.com/gtriggiano/statica/releases/download/v{{VERSION}}/statica_{{VERSION}}_checksums.txt
+shasum -a 256 --check --ignore-missing statica_{{VERSION}}_checksums.txt
+tar -xzf statica_{{VERSION}}_darwin_arm64.tar.gz statica
+sudo install -m 0755 statica /usr/local/bin/statica
+```
+
+:::
+
+The check prints `OK` for the archive. Then check the installed binary:
+
+```sh
 statica version
 ```
 
@@ -93,19 +105,19 @@ An archive downloaded with `curl` runs as is. If you download it with a browser 
 
 ## Verify a release
 
-Every archive and every image has a provenance attestation, signed by GitHub, that ties it to the release workflow of the statica repository and to the commit of the release. Check one with the [GitHub CLI](https://cli.github.com/):
+Every archive and every image has a provenance attestation, signed by GitHub, that ties it to the release workflow of the statica repository and to the commit of the release. Check one, here the Linux amd64 archive and the image, with the [GitHub CLI](https://cli.github.com/):
 
 ```sh
-gh attestation verify "statica_${VERSION}_${OS}_${ARCH}.tar.gz" --repo gtriggiano/statica \
+gh attestation verify statica_{{VERSION}}_linux_amd64.tar.gz --repo gtriggiano/statica \
   --signer-workflow gtriggiano/statica/.github/workflows/release.yml
-gh attestation verify "oci://ghcr.io/gtriggiano/statica:${VERSION}" --repo gtriggiano/statica \
+gh attestation verify oci://ghcr.io/gtriggiano/statica:{{VERSION}} --repo gtriggiano/statica \
   --signer-workflow gtriggiano/statica/.github/workflows/release.yml
 ```
 
 Releases are immutable: once published, their tag and their files never change. GitHub attests each release as a whole:
 
 ```sh
-gh release verify "v${VERSION}" --repo gtriggiano/statica
+gh release verify v{{VERSION}} --repo gtriggiano/statica
 ```
 
 Each archive also has an SPDX software bill of materials, `statica_<version>_<os>_<arch>.tar.gz.sbom.json`, attached to the release.
@@ -120,10 +132,10 @@ cd statica
 make build
 ```
 
-`make build` writes the binary to `bin/statica`. A build from source reports the version `dev` and the revision `unknown`. To build a release, check out its tag (`git checkout "v${VERSION}"`) before `make build`.
+`make build` writes the binary to `bin/statica`. A build from source reports the version `dev` and the revision `unknown`. To build a release, check out its tag (`git checkout v{{VERSION}}`) before `make build`.
 
 ## Next steps
 
 - [Quickstart](./quickstart.md): point statica at a bucket and serve it.
 - [Configuration basics](./configuration.md): the configuration file.
-- [Deploy, roll out and shut down](./deployment.md): run statica under systemd or Kubernetes.
+- [Deploy on Kubernetes](./kubernetes.md) and [Deploy, roll out and shut down](./deployment.md): run statica on Kubernetes or under systemd.

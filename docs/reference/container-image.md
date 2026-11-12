@@ -4,11 +4,9 @@
 
 The image of the release that this documentation describes:
 
-<!-- x-release-please-start-version -->
 ```text
-ghcr.io/gtriggiano/statica:1.0.0
+ghcr.io/gtriggiano/statica:{{VERSION}}
 ```
-<!-- x-release-please-end -->
 
 [Installation](../guide/installation.md#container-image) shows how to run it.
 
@@ -41,7 +39,7 @@ Tags have no `v` prefix. No image is built from unreleased code. The floating ta
 - **Listen addresses.** The exposed ports are documentation only: statica's listeners default to `127.0.0.1:8080` and `127.0.0.1:9090`, unreachable from outside the container. Set [`server.listen`](./configuration.md#server-listen) and [`admin.listen`](./configuration.md#admin-listen), as in the [container example](./examples.md#container).
 - **File system.** statica writes nothing to disk: run the container with a read-only root filesystem.
 - **Arguments.** Arguments after the image name replace the default command, for example `version` or `config validate`.
-- **No shell.** Container hooks and probes cannot run shell commands: use HTTP probes on the admin listener and the `sleep` action for a Kubernetes `preStop` hook ([Deploy, roll out and shut down](../guide/deployment.md#kubernetes)).
+- **No shell.** Container hooks and probes cannot run shell commands: use HTTP probes on the admin listener and the `sleep` action for a Kubernetes `preStop` hook ([Deploy on Kubernetes](../guide/kubernetes.md)).
 
 ## Labels
 
@@ -62,12 +60,10 @@ Each image carries these [OCI labels](https://github.com/opencontainers/image-sp
 
 Each image index has a provenance attestation, signed by GitHub, that ties it to the release workflow and to the commit of the release. Check it with the [GitHub CLI](https://cli.github.com/):
 
-<!-- x-release-please-start-version -->
 ```sh
-gh attestation verify oci://ghcr.io/gtriggiano/statica:1.0.0 --repo gtriggiano/statica \
+gh attestation verify oci://ghcr.io/gtriggiano/statica:{{VERSION}} --repo gtriggiano/statica \
   --signer-workflow gtriggiano/statica/.github/workflows/release.yml
 ```
-<!-- x-release-please-end -->
 
 Each image also carries an SPDX software bill of materials, attached by the build as an attestation in the registry.
 
