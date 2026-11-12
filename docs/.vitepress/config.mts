@@ -36,64 +36,87 @@ if (version && !version.includes('-') && version !== manifest['.']) {
 const archived = base !== siteRoot
 
 export default defineConfig({
-  title: 'statica',
-  description: 'A Go web server for static websites stored in S3, with a bounded in-memory cache.',
-  lang: 'en-US',
+  title: "statica",
+  description:
+    "A Go web server for static websites stored in S3, with a bounded in-memory cache.",
+  lang: "en-US",
   base,
   lastUpdated: true,
   cleanUrls: false,
   ignoreDeadLinks: false,
   // head entries are not rewritten with the base, so prefix it here.
   head: [
-    ['link', { rel: 'icon', type: 'image/svg+xml', href: `${base}favicon.svg` }],
-    ['link', { rel: 'apple-touch-icon', href: `${base}apple-touch-icon.png` }],
-    ['meta', { property: 'og:type', content: 'website' }],
-    ['meta', { property: 'og:title', content: 'statica — Static websites, served from S3' }],
     [
-      'meta',
+      "link",
+      { rel: "icon", type: "image/svg+xml", href: `${base}favicon.svg` },
+    ],
+    ["link", { rel: "apple-touch-icon", href: `${base}apple-touch-icon.png` }],
+    ["meta", { property: "og:type", content: "website" }],
+    [
+      "meta",
       {
-        property: 'og:description',
-        content: 'Static websites, served from S3. One instance serves one bucket or prefix. Configured by a single YAML file.',
+        property: "og:title",
+        content: "statica — Static websites, served from S3",
       },
     ],
-    ['meta', { property: 'og:image', content: `${base}og-image.png` }],
-    ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
-    ...(archived ? [['meta', { name: 'robots', content: 'noindex' }] as HeadConfig] : []),
+    [
+      "meta",
+      {
+        property: "og:description",
+        content:
+          "Static websites, served from S3. One instance serves one bucket or prefix. Configured by a single YAML file.",
+      },
+    ],
+    ["meta", { property: "og:image", content: `${base}og-image.png` }],
+    ["meta", { name: "twitter:card", content: "summary_large_image" }],
+    ...(archived
+      ? [["meta", { name: "robots", content: "noindex" }] as HeadConfig]
+      : []),
   ],
   markdown: {
     config: (md) => {
-      mermaidFence(md)
+      mermaidFence(md);
       if (version) {
         // The source reaches the parser with its includes already expanded.
-        const parse = md.parse.bind(md)
-        md.parse = (source, env) => parse(setBlockVersions(source, version), env)
+        const parse = md.parse.bind(md);
+        md.parse = (source, env) =>
+          parse(setBlockVersions(source, version), env);
       }
     },
   },
   vite: {
     // Read by the version selector and banner (theme/versions.ts).
-    define: { __DOCS_SITE_ROOT__: JSON.stringify(siteRoot), __DOCS_VERSION__: JSON.stringify(version) },
+    define: {
+      __DOCS_SITE_ROOT__: JSON.stringify(siteRoot),
+      __DOCS_VERSION__: JSON.stringify(version),
+    },
     // Mermaid's diagram engines (elk, cytoscape, katex) are split into chunks
     // over 500 kB. They are loaded on demand, only by pages with diagrams.
     build: { chunkSizeWarningLimit: 2048 },
     // Pre-bundle mermaid for the dev server, so the first diagram does not
     // trigger a dependency re-optimization and a full page reload.
-    optimizeDeps: { include: ['mermaid'] },
+    optimizeDeps: { include: ["mermaid"] },
   },
   themeConfig: {
     logo: {
-      light: '/logo-light.svg',
-      dark: '/logo-dark.svg',
-      alt: 'statica',
+      light: "/logo-light.svg",
+      dark: "/logo-dark.svg",
+      alt: "statica",
     },
-    search: { provider: 'local' },
+    search: { provider: "local" },
     outline: [2, 3],
     nav,
     sidebar,
-    socialLinks: [{ icon: 'github', link: repository }],
+    socialLinks: [{ icon: "github", link: repository }],
     editLink: archived
       ? undefined
-      : { pattern: `${repository}/edit/main/docs/:path`, text: 'Edit this page on GitHub' },
-    footer: { message: 'Released under the MIT License.' },
+      : {
+          pattern: `${repository}/edit/main/docs/:path`,
+          text: "Edit this page on GitHub",
+        },
+    footer: {
+      message: "Released under the MIT License.",
+      copyright: "Copyright © 2026 Giacomo Triggiano",
+    },
   },
-})
+});
