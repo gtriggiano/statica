@@ -240,8 +240,8 @@ When a `GET` finds a stale body entry, its shared fill asks the origin whether t
 ```mermaid
 flowchart TD
   accTitle: Revalidation and origin errors
-  accDescr: For a stale body entry, statica sends a GET with If-None-Match when conditional_reads is on and the entry has an ETag, and a GET without a condition otherwise. A 304 with the same ETag merges the metadata and makes the entry fresh again; a 304 with another ETag leads to one unconditional GET. A 200 is handled like a new fill, a 404 NoSuchKey replaces the entry with a negative entry, and a 403 removes it. A timeout, throttling or an unavailable origin (a 5xx, a network error, missing credentials or a provider error without a more specific class) serves the expired entry when stale_if_error allows it, and otherwise gives 504, 503 or 502. An error code for the bucket, the endpoint or the credentials, a 404 without NoSuchKey or an invalid response gives 502 without a stale copy.
-  V{"conditional_reads<br/>and an ETag?"} -->|yes| C["GET with If-None-Match"]
+  accDescr: For a stale body entry, statica sends a GET with If-None-Match when conditional_reads is on and the entry has an ETag, is not empty and has no website redirect location, and a GET without a condition otherwise. A 304 with the same ETag merges the metadata and makes the entry fresh again; a 304 with another ETag leads to one unconditional GET. A 200 is handled like a new fill, a 404 NoSuchKey replaces the entry with a negative entry, and a 403 removes it. A timeout, throttling or an unavailable origin (a 5xx, a network error, missing credentials or a provider error without a more specific class) serves the expired entry when stale_if_error allows it, and otherwise gives 504, 503 or 502. An error code for the bucket, the endpoint or the credentials, a 404 without NoSuchKey or an invalid response gives 502 without a stale copy.
+  V{"conditional_reads, an ETag,<br/>not empty, no<br/>website redirect?"} -->|yes| C["GET with If-None-Match"]
   V -->|no| G["GET without a condition"]
   C -->|"304, same ETag"| F["Metadata merged,<br/>fresh again"]
   C -->|"304, other ETag"| G
@@ -254,7 +254,7 @@ flowchart TD
   E -->|no| X["504, 503 or 502"]
 ```
 
-- The fill sends `If-None-Match` with the stored `ETag` when [`s3.features.conditional_reads`](../reference/configuration.md#s3-features-conditional-reads) is on and the stored `ETag` is a valid entity tag. A weak tag qualifies, because `If-None-Match` compares weakly. Otherwise it fetches the object again without a condition.
+- The fill sends `If-None-Match` with the stored `ETag` when [`s3.features.conditional_reads`](../reference/configuration.md#s3-features-conditional-reads) is on and the stored `ETag` is a valid entity tag. A weak tag qualifies, because `If-None-Match` compares weakly. Otherwise, and always for an empty object or an object with website redirect metadata (`x-amz-website-redirect-location`), it fetches the object again without a condition: a 304 keeps the stored redirect metadata, and every empty object has the same `ETag`, so a 304 could not show a redirect added or changed by uploading a new empty object.
 - **304 Not Modified with the stored `ETag`, or with none.** The stored bytes stay, and the metadata is merged as RFC 9111, section 4.3.4 describes: a `Cache-Control`, an `Expires` or a `Last-Modified` in the 304 replaces the stored one; `Date` and `Age` always come from the 304, so the entry's age restarts from the revalidation; type, length, encoding, disposition and language never change. The entry is fresh again, and its waiters report `cache=revalidated`. If the merged metadata may no longer be stored, because the 304 carried `no-store`, `private` or malformed metadata, the entry is removed, and the confirmed bytes still serve this fill's waiters.
 - **304 with another `ETag`.** The stored copy is not the current object. The fill fetches the object once more without a condition, within the same `fill_timeout`.
 - **200.** The object changed, and the fill handles the new object like any other: buffered and stored when it is eligible, streamed otherwise. The stale entry stays in place when the new object streams because of its length or of the fill budget, and is removed when the new object may not be stored at all.
@@ -298,8 +298,8 @@ A `HEAD` is answered from memory, as `cache=metadata_hit`, when a fresh body or 
 
 Otherwise the `HEAD` sends its own `HeadObject` to the origin, within its own deadlines and outside any shared fill, and stores the answer as a metadata entry. A `HEAD` reads no body itself:
 
-- When the entry it found was a stale body whose strong `ETag` matches the origin's, that body entry is updated with the merged metadata, and the request reports `cache=revalidated`.
-- When the `ETag` differs or is weak, the metadata entry replaces the body entry, and the next `GET` fetches the object.
+- When the entry it found was a stale body whose strong `ETag` and website redirect metadata match the origin's, that body entry is updated with the merged metadata, and the request reports `cache=revalidated`.
+- When the `ETag` differs or is weak, or the website redirect metadata differs, the metadata entry replaces the body entry, and the next `GET` fetches the object.
 - A 403 removes the entry and serves no stale copy; other failures can serve the stale entry under stale-if-error, as for a `GET`.
 - S3 answers a missing object to a `HeadObject` with a 404 that carries no error code, so a `HEAD` cannot confirm an absence by itself. Resolution then reads the same key with an ordinary `GET` through the memory cache, a shared fill like any other. If the object is missing, that `GET` stores the negative entry that later `HEAD` and range requests reuse; if the object exists after all, it downloads and stores the object like any `GET` miss.
 

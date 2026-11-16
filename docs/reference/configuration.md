@@ -71,7 +71,7 @@ s3:
 
 ### Defaults
 
-statica applies a default only to an omitted field. An explicit value is never replaced, even when it is `false`, zero or empty, and an empty value without a meaning is an error (`hosts: []`, `index: ""`). Some defaults apply only when their block is present: `server.tls.min_version`, the fields of `admin.origin_health`, `compression.encodings` in `precompressed` mode and `redirects[].query`. `config print` shows the configuration with every default applied.
+statica applies a default only to an omitted field. An explicit value is never replaced, even when it is `false`, zero or empty, and an empty value without a meaning is an error (`hosts: []`, `index: ""`). Some defaults apply only when their block is present: `server.tls.min_version`, the fields of `admin.origin_health`, `compression.encodings` in `precompressed` mode, `redirects[].query` and the fields of `website_redirects`. `config print` shows the configuration with every default applied.
 
 ### Normalization
 
@@ -961,6 +961,60 @@ The constraint for placeholder `<name>`.
 **Allowed:** a nonempty RE2 regular expression
 
 RE2 regular expression that the whole decoded value must match: statica anchors it at both ends.
+
+## `website_redirects`
+
+**Type:** mapping\
+**Default:** unset — statica ignores the `x-amz-website-redirect-location` of objects.
+
+| Field | Type | Default | Allowed |
+| --- | --- | --- | --- |
+| [`website_redirects.status`](#website-redirects-status) | integer | `301` | `301`, `302`, `307` or `308` |
+| [`website_redirects.query`](#website-redirects-query) | string | `preserve` | `drop` or `preserve` |
+| [`website_redirects.external`](#website-redirects-external) | boolean | `false` |  |
+
+Answers with a redirect for an object that declares a destination in its `x-amz-website-redirect-location` metadata, as S3 website hosting does ([website redirects](../architecture/request-flow.md#website-redirects); [Redirect with object metadata](../guide/redirects.md#redirect-with-object-metadata)). With this block:
+
+- The redirect applies to the object at the exact key of a request and to an index object, including the index object of a path without a trailing slash, which then gets this redirect instead of the 308 that adds the slash. It never applies to the SPA shell or the `not_found` object.
+- The response has the configured status, a `Location` header and `Cache-Control: no-store`, whatever the request's conditional and `Range` headers.
+- With precompressed variants, the metadata of the canonical object applies, whichever variant the request accepts.
+- The destination is a local absolute path, such as `/docs/new/`, or an `https://` URL with an optional [port](#ports), path, query and fragment. Any other value, such as an `http://` URL, a relative reference like `new/` or `//example.com/`, credentials, characters not allowed in a URL or more than 8 KiB, is ignored: the request is answered as without this block.
+
+```yaml [config.yaml]
+website_redirects:
+  status: 301
+  query: preserve
+```
+
+### `website_redirects.status`
+
+**Type:** integer\
+**Default:** `301`\
+**Allowed:** `301`, `302`, `307` or `308`
+
+Status of the redirect response.
+
+### `website_redirects.query`
+
+**Type:** string\
+**Default:** `preserve`\
+**Allowed:** `drop` or `preserve`
+
+What happens to the query of the request:
+
+| Value | `Location` query |
+| --- | --- |
+| `drop` | Only the destination's own query, if any. |
+| `preserve` | The destination's own query when it has one; otherwise the whole request query, unchanged except that bytes that could alter the header are percent-encoded. |
+
+A fragment in the destination is kept with both values. A `Location` longer than 8 KiB answers 414 URI Too Long.
+
+### `website_redirects.external`
+
+**Type:** boolean\
+**Default:** `false`
+
+Whether an `https://` destination can name another host than the request's. With `false`, the destination's hostname must equal the request's `Host`, both compared lowercase and without port or trailing dot: `https://www.example.com/new/` is accepted for a request to `www.example.com` only, and a destination on another host is not accepted. With `true`, any host is accepted. Local paths are accepted with both values.
 
 ## `headers`
 

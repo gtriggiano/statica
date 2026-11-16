@@ -19,6 +19,7 @@ import (
 	"github.com/gtriggiano/statica/internal/config"
 	"github.com/gtriggiano/statica/internal/httpcache"
 	"github.com/gtriggiano/statica/internal/httpserver"
+	"github.com/gtriggiano/statica/internal/redirect"
 	"github.com/gtriggiano/statica/internal/site"
 	"github.com/gtriggiano/statica/internal/storage"
 	"github.com/gtriggiano/statica/internal/telemetry"
@@ -51,7 +52,13 @@ const (
 
 // Observation contains only selected object identity and bounded diagnostics.
 // OriginKey is populated when object headers are committed, including HEAD/304
-// and interrupted transfers, never for an unsuccessful origin candidate.
+// and interrupted transfers, never for an unsuccessful origin candidate, and
+// for the object whose website redirect location answered the request.
+//
+// Redirect names the source of a redirect that the selected object declared,
+// RedirectWebsite, whether or not it was used; Location is the Location sent
+// for it, empty when the destination was not acceptable, when it was too long
+// (414), or when a deadline replaced the redirect.
 //
 // With WithCache, CacheOutcome and CacheReason classify the lookup that
 // decided the response, for the access log's cache field and
@@ -86,7 +93,13 @@ type Observation struct {
 	CacheReason       cache.Reason
 	CacheCoalesced    bool
 	CacheBytes        int64
+	Redirect          string
+	Location          string
 }
+
+// RedirectWebsite is the Observation.Redirect of an object's
+// x-amz-website-redirect-location.
+const RedirectWebsite = "website_redirect_location"
 
 type HandlerOption func(*handler)
 
@@ -137,6 +150,7 @@ func (o *Observation) fill(r *telemetry.Record) {
 	r.Outcome, r.TerminationReason = string(o.Outcome), string(o.TerminationReason)
 	r.CacheOutcome, r.CacheReason, r.CacheCoalesced = string(o.CacheOutcome), string(o.CacheReason), o.CacheCoalesced
 	r.CacheBytes, r.CacheDiagnostic = o.CacheBytes, o.CacheDiagnostic
+	r.Redirect, r.Location = o.Redirect, o.Location
 }
 
 // WithObserver installs a prompt, concurrency-safe synchronous callback.
@@ -170,6 +184,8 @@ type handler struct {
 	cacheControl                  config.CacheControl
 	features                      config.Features
 	accessDenied                  string
+	website                       *redirect.ObjectPolicy
+	websiteStatus                 int
 	preparation, writeIdle, total time.Duration
 	observe                       func(Observation)
 }
@@ -190,6 +206,9 @@ func NewHandler(cfg *config.Config, reader storage.Reader, options ...HandlerOpt
 	h := &handler{origin: reader, reader: reader, cache: cfg.Cache, cacheControl: cfg.CacheControl,
 		features: cfg.S3.Features, accessDenied: cfg.Errors.AccessDenied,
 		preparation: cfg.Server.ResponseHeaderTimeout, writeIdle: cfg.Server.WriteIdleTimeout, total: cfg.Server.RequestTimeout}
+	if w := cfg.WebsiteRedirects; w != nil {
+		h.website, h.websiteStatus = &redirect.ObjectPolicy{Query: w.Query, External: w.External}, w.Status
+	}
 	h.cache.Rules = append([]config.CacheRule(nil), cfg.Cache.Rules...)
 	for i := range h.cache.Rules {
 		r := &h.cache.Rules[i]
@@ -371,6 +390,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			// object's request_directives.
 			ctx = cache.WithRevalidation(ctx, httpcache.RequestDirectives(r.Header))
 		}
+		observation.Redirect = ""
 		selection, err := h.resolver.Resolve(ctx, req)
 		if h.memory != nil {
 			key := ""
@@ -391,6 +411,20 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		body := ownBody(ctx, selection.Body)
 		// Each iteration releases its snapshot before a guarded retry. The final
 		// body's deferred release also runs on ErrAbortHandler.
+		if status, location, ok := h.websiteRedirect(selection, metadata, &observation); ok {
+			body.release()
+			observation.Resolution = selection.Resolution
+			vary(w.Header(), selection)
+			if location != "" {
+				w.Header().Set("Location", location)
+			}
+			h.generated(w, r, status, &observation, phase)
+			// A deadline can replace the redirect with a 504 or 503.
+			if location != "" && observation.Status == status {
+				observation.OriginKey, observation.Location = selection.Key, location
+			}
+			return
+		}
 		if selection.Status == http.StatusPermanentRedirect {
 			body.release()
 			observation.Resolution = selection.Resolution
@@ -607,6 +641,30 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// websiteRedirect decides whether the website redirect location of an
+// ordinary or index object answers the request, before its conditions and
+// ranges: with the configured status and its Location, or with 414 and no
+// Location when the Location would be too long. Otherwise the request is
+// answered as without website redirects. It sets o.Redirect for every
+// selection that declares one, and clears it for any other, so that a
+// guarded retry does not keep the value of an earlier revision.
+func (h *handler) websiteRedirect(s *site.Selection, m httpserver.RequestMetadata, o *Observation) (status int, location string, ok bool) {
+	o.Redirect = ""
+	if h.website == nil || s.WebsiteRedirect == "" || s.Status != http.StatusOK && s.Status != http.StatusPermanentRedirect ||
+		s.Resolution != site.ResolutionOrdinary && s.Resolution != site.ResolutionIndex {
+		return 0, "", false
+	}
+	o.Redirect = RedirectWebsite
+	location, ok, err := h.website.Location(s.WebsiteRedirect, m.Host, m.Target.RawQuery, m.Target.ForceQuery)
+	if err != nil {
+		return http.StatusRequestURITooLong, "", true
+	}
+	if !ok {
+		return 0, "", false
+	}
+	return h.websiteStatus, location, true
+}
+
 // objectCoding is the content coding of a read of the selected object: the
 // one it declares, or the selection's for a precompressed variant that
 // declares none.
@@ -709,7 +767,9 @@ func (h *handler) generated(w http.ResponseWriter, r *http.Request, status int, 
 	if status < 200 {
 		status = http.StatusBadGateway
 	}
-	if status != http.StatusPermanentRedirect {
+	switch status {
+	case http.StatusMovedPermanently, http.StatusFound, http.StatusTemporaryRedirect, http.StatusPermanentRedirect:
+	default:
 		w.Header().Del("Location")
 	}
 	if status != http.StatusRequestedRangeNotSatisfiable {

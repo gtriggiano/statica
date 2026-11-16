@@ -1,6 +1,6 @@
 # Configure redirects
 
-Send visitors from old URLs to new ones, within the site or to another HTTPS origin, with rules that **statica** answers without reading the bucket.
+Send visitors from old URLs to new ones, within the site or to another HTTPS origin, with rules that **statica** answers without reading the bucket, or with redirect metadata stored on objects.
 
 ## Prerequisites
 
@@ -178,15 +178,57 @@ level=info event=http_request host=127.0.0.1 method=HEAD path="/blog/2024/hello-
 
 A request whose values cannot be used gets 400 Bad Request, or 414 URI Too Long, logged at `warn` with `error_class=invalid_redirect_input`.
 
+## Redirect with object metadata
+
+S3 website hosting redirects a request for an object that has `x-amz-website-redirect-location` metadata. statica does the same with [`website_redirects`](../reference/configuration.md#website-redirects):
+
+```yaml [config.yaml]
+website_redirects:
+  status: 301
+```
+
+Store an object at the old path with its destination. Its content is not served, so it can be empty. The key includes the publication prefix, if you set one:
+
+```sh
+aws s3api put-object --bucket example-site --key old-page/index.html --website-redirect-location /new-page/
+```
+
+- Requests for `/old-page/` and `/old-page` both get 301 with `Location: /new-page/`: the index object redirects without the 308 that adds the slash. An object at an exact key, such as `old.html`, redirects too.
+- The destination is a path from the site's root, such as `/new-page/`, or an `https://` URL. An `https://` URL must name the host of the request, unless you set [`website_redirects.external`](../reference/configuration.md#website-redirects-external) to `true`.
+- By default the request's query is added to a destination that has none ([`website_redirects.query`](../reference/configuration.md#website-redirects-query)), and a fragment in the destination is kept.
+- The `redirects` rules run first: a rule that matches the path wins over the object.
+
+Check that your provider stored the metadata: the output of `aws s3api head-object --bucket example-site --key old-page/index.html` must contain `WebsiteRedirectLocation`. Then request the old path:
+
+```sh
+curl -sI 'http://127.0.0.1:8080/old-page/?ref=feed'
+```
+
+```text
+HTTP/1.1 301 Moved Permanently
+Cache-Control: no-store
+Location: /new-page/?ref=feed
+...
+```
+
+The access event names the object and the destination:
+
+```text
+level=info event=http_request host=127.0.0.1 method=HEAD path="/old-page/?ref=feed" status=301 outcome=success resolution=index ... origin_key=old-page/index.html redirect=website_redirect_location location="/new-page/?ref=feed" ...
+```
+
 ## Pitfalls
 
 - **Hidden paths cannot be redirected.** A path with a segment that starts with a dot, other than a first `.well-known`, gets 404 Not Found before the rules run, so `config validate` rejects a `from` such as `/.old/page`.
 - **Rules hide objects.** A rule answers before any lookup, so an object at its `from` path is never served.
 - **Size limits.** Each template is at most 8 KiB. A request whose `Location` would exceed 8 KiB gets 414 URI Too Long, and a placeholder value longer than 256 bytes does not match.
+- **A website redirect that statica does not accept is ignored.** An `http://` destination, a relative one such as `new-page/`, or an `https://` URL to another host without `external: true` is ignored: the object is served as stored, often as an empty page, or a path without a trailing slash gets the 308 that adds it. The access event then has `redirect=website_redirect_location` and no `location`.
+- **Upload a redirect as a new object.** A metadata-only change, such as `aws s3 cp` of an object onto itself with `--website-redirect`, keeps the `ETag` of a nonempty object, and the memory cache keeps serving its copy without the redirect until the entry leaves the cache. `put-object` with an empty body, as above, takes effect when the cached entry expires.
 - **The trailing-slash redirect is separate.** statica's own 308 from `/guide` to `/guide/` happens during resolution, after the rules, and only when `guide/index.html` exists ([Publish a site to S3](./publishing.md)).
 
 ## Related pages
 
 - [`redirects` configuration reference](../reference/configuration.md#redirects): every rule of the template syntax.
+- [`website_redirects` configuration reference](../reference/configuration.md#website-redirects)
 - [Request flow and URL mapping](../architecture/request-flow.md#redirect-rules)
 - [Publish a site to S3](./publishing.md)

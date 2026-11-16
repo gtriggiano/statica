@@ -123,7 +123,7 @@ const entryOverhead = 640
 func ownCharge(key string, m storage.Metadata) int64 {
 	return int64(entryOverhead + len(key) + len(m.ETag) + len(m.ContentType) + len(m.ContentEncoding) +
 		len(m.CacheControl) + len(m.Expires) + len(m.ContentDisposition) + len(m.ContentLanguage) +
-		len(m.RawDate) + len(m.RawAge) + len(m.ContentRange) + len(m.Checksum))
+		len(m.RawDate) + len(m.RawAge) + len(m.ContentRange) + len(m.Checksum) + len(m.WebsiteRedirectLocation))
 }
 
 // Stats is a point-in-time copy of the Store's accounting. ChargedBytes is

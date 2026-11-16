@@ -546,8 +546,16 @@ func TestValidator(t *testing.T) {
 		{"conditional reads off", KindBody, `"v"`, false, ""},
 		{"negative", KindNegative, `"v"`, true, ""},
 	} {
-		if got := Validator(policySnap(tc.kind, storage.Metadata{ETag: tc.etag}), tc.conditional); got != tc.want {
+		if got := Validator(policySnap(tc.kind, storage.Metadata{Size: 1, ETag: tc.etag}), tc.conditional); got != tc.want {
 			t.Errorf("%s: Validator = %q, want %q", tc.name, got, tc.want)
 		}
+	}
+	// A 304 keeps the stored website redirect location, and every empty
+	// object has the same ETag: a redirect added or changed must be fetched.
+	if got := Validator(policySnap(KindBody, storage.Metadata{Size: 1, ETag: `"v"`, WebsiteRedirectLocation: "/new/"}), true); got != "" {
+		t.Errorf("website redirect: Validator = %q, want none", got)
+	}
+	if got := Validator(policySnap(KindMetadata, storage.Metadata{Size: 0, ETag: `"v"`}), true); got != "" {
+		t.Errorf("empty object: Validator = %q, want none", got)
 	}
 }

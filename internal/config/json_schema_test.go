@@ -163,6 +163,11 @@ var jsonSchemaNotes = map[string]jsonSchemaNote{
 	"redirects[].captures.<name>":         {doc: "The constraint for one placeholder."},
 	"redirects[].captures.<name>.pattern": {doc: "A regular expression in RE2 syntax that the whole decoded value must match.", required: true, minLength: 1},
 
+	"website_redirects":          {doc: "Answers with a redirect for an object that declares a destination in its x-amz-website-redirect-location metadata. Without it, such an object is served as stored."},
+	"website_redirects.status":   {doc: "Status of the redirect.", intEnum: []int{301, 302, 307, 308}},
+	"website_redirects.query":    {doc: "What happens to the query of the request: drop removes it, preserve adds it to a destination that has no query.", enum: []string{"drop", "preserve"}},
+	"website_redirects.external": {doc: "true also follows https:// destinations on a host other than the request's."},
+
 	"headers":            {doc: "Static response headers."},
 	"headers.set":        {doc: "Headers added to every response statica writes on the public listener, errors and redirects included. Some header names are reserved.", keyPattern: jsonSchemaTokenPattern},
 	"headers.set.<name>": {doc: "Value of the header, sent as written.", minLength: 1},
@@ -211,6 +216,7 @@ cors:
   allowed_origins: ["https://www.example.com"]
 spa:
   fallback: index.html
+website_redirects: {}
 redirects:
   - from: /old
     to: /new

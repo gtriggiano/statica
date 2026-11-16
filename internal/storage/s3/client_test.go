@@ -457,6 +457,25 @@ func TestHeadAndBodyOwnership(t *testing.T) {
 	}
 }
 
+func TestWebsiteRedirectLocation(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "0")
+		w.Header().Set("ETag", `"empty"`)
+		w.Header().Set("X-Amz-Website-Redirect-Location", "/new-page/")
+	}))
+	defer srv.Close()
+	c := newClient(t, testConfig(srv.URL))
+	m, err := c.Head(context.Background(), "docs/old-page/index.html")
+	if err != nil || m.WebsiteRedirectLocation != "/new-page/" {
+		t.Fatalf("HEAD %+v %v", m, err)
+	}
+	o, err := c.Get(context.Background(), "docs/old-page/index.html", storage.ReadOptions{})
+	if err != nil || o.Metadata.WebsiteRedirectLocation != "/new-page/" {
+		t.Fatalf("GET %+v %v", o, err)
+	}
+	_ = o.Body.Close()
+}
+
 func TestMalformedAndUnknownLengthResponses(t *testing.T) {
 	for _, tc := range []struct {
 		name                          string

@@ -150,9 +150,10 @@ func TestAccessEventFieldsAndOrder(t *testing.T) {
 	r.CacheOutcome, r.CacheReason, r.CacheCoalesced = "bypass", "waiters_full", true
 	r.Outcome, r.TerminationReason, r.ErrorClass = OutcomeIncomplete, "origin_read_failure", "origin_unavailable"
 	r.CacheDiagnostic, r.AttributionReason, r.ClientIPSource = "malformed_origin_cache_metadata", "invalid_forwarded_chain", "peer"
+	r.Redirect, r.Location = "website_redirect_location", "/new/"
 	r.ClientIP = r.PeerIP
 	e = accessEvents(t, cfg, nil, r)[0]
-	want = "ts level event request_id request_id_source request_id_reason host method path query_redaction_failed path_truncated status outcome resolution cache cache_reason cache_coalesced origin_key duration_ms ttfb_ms bytes_written error_class termination_reason cache_diagnostic client_ip peer_ip client_ip_source client_ip_reason"
+	want = "ts level event request_id request_id_source request_id_reason host method path query_redaction_failed path_truncated status outcome resolution cache cache_reason cache_coalesced origin_key redirect location duration_ms ttfb_ms bytes_written error_class termination_reason cache_diagnostic client_ip peer_ip client_ip_source client_ip_reason"
 	if strings.Join(e.keys, " ") != want || e.values["level"] != "error" || e.values["cache_coalesced"] != "true" || e.values["path_truncated"] != "true" ||
 		len(e.values["path"]) != MaxPathBytes || strings.Contains(e.values["path"], "SECRET") {
 		t.Fatalf("keys %v\nwant %s\nvalues %v", e.keys, want, e.values)
@@ -179,6 +180,25 @@ func TestAccessEventFieldsAndOrder(t *testing.T) {
 	if _, ok := e.values["ttfb_ms"]; ok || e.values["path"] != "/guide/" || e.values["query_redaction_failed"] != "true" ||
 		e.values["status"] != "0" || e.values["error_class"] != "handler_panic" || e.values["level"] != "error" {
 		t.Fatalf("values %v", e.values)
+	}
+}
+
+func TestLogLocationRedactsQuery(t *testing.T) {
+	names := []string{"token"}
+	for _, tc := range []struct{ location, want string }{
+		{"", ""},
+		{"/new/", "/new/"},
+		{"/new/?lang=en&token=SECRET#install", "/new/?lang=en&token=[REDACTED]#install"},
+		{"https://docs.example.com/new/?Token=SECRET", "https://docs.example.com/new/?Token=[REDACTED]"},
+		{"/new/?token=%zz#install", "/new/"},
+		{"/new/#a?token=SECRET", "/new/#a?token=SECRET"},
+	} {
+		if got := logLocation(tc.location, names); got != tc.want {
+			t.Errorf("logLocation(%q) = %q, want %q", tc.location, got, tc.want)
+		}
+	}
+	if got := logLocation("/"+strings.Repeat("a", MaxPathBytes), names); len(got) != MaxPathBytes {
+		t.Errorf("logLocation kept %d bytes", len(got))
 	}
 }
 

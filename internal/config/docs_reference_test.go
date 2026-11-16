@@ -99,6 +99,7 @@ compression:
   mode: precompressed
 spa:
   fallback: index.html
+website_redirects: {}
 `
 
 // derivedDefaults are fields documented as "Default: none" whose omitted value

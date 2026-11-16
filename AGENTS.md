@@ -73,7 +73,7 @@ These hold across the code base, and are the same as in [CONTRIBUTING.md § Desi
 
 - **The origin is read-only.** statica sends only `GetObject` and `HeadObject`. It never lists, writes or deletes objects.
 - **Keys stay inside the publication prefix.** `internal/site` validates paths and confines keys. It does no filesystem cleaning and no URL re-decoding.
-- **The `Host` never selects content.** It is used for admission and telemetry only: never in an S3 request, an object key or a cache entry.
+- **The `Host` never selects content.** It is used for admission, telemetry and to check that a website redirect stays on the request's host: never in an S3 request, an object key or a cache entry.
 - **Configuration is immutable.** Everything is built and validated before any socket opens; there is no reload.
 - **Every resource has a configured ceiling, and statica refuses work instead of queueing it.** A new resource that clients can consume needs a limit.
 - **An origin failure never falls back** to an index, single-page-app or 404 object, and an origin 403 is a denial, never a missing object.

@@ -93,7 +93,7 @@ Target validation runs first, so a hidden or invalid path gets its 404 or 400 ev
 
 ### After resolution
 
-Once resolution has selected an object, the conditional request headers and a `Range` header are evaluated against it, then the object response is written: 200 OK, 206 Partial Content, 304 Not Modified, 412 Precondition Failed or 416 Range Not Satisfiable. A `HEAD` request follows the same resolution and gets the headers a `GET` would get, without a body; `Range` is ignored on `HEAD`. [Ranges and conditional requests](./ranges-and-conditionals.md) describes these rules.
+Once resolution has selected an object that declares no [website redirect](#website-redirects), the conditional request headers and a `Range` header are evaluated against it, then the object response is written: 200 OK, 206 Partial Content, 304 Not Modified, 412 Precondition Failed or 416 Range Not Satisfiable. A `HEAD` request follows the same resolution and gets the headers a `GET` would get, without a body; `Range` is ignored on `HEAD`. [Ranges and conditional requests](./ranges-and-conditionals.md) describes these rules.
 
 ## From path to object
 
@@ -128,6 +128,16 @@ flowchart TD
 The access log records which candidate answered in its [`resolution`](../reference/logs.md#resolution) field: `ordinary` for the exact key, `index` for an index object or the 308, `spa` for the shell, and `not_found` for both 404 responses.
 
 The `index`, `not_found` and `spa.fallback` settings name objects relative to the publication prefix. They are object keys, not request paths, so the hidden-segment rule does not apply to them. [Publish a site to S3](../guide/publishing.md) shows how to lay out the bucket for this order.
+
+### Website redirects
+
+With [`website_redirects`](../reference/configuration.md#website-redirects), an object that declares a destination in its `x-amz-website-redirect-location` metadata answers with a redirect instead of its content, as S3 website hosting does. This applies to the object at the exact key and to an index object, not to the SPA shell or the `not_found` object:
+
+- The response has `website_redirects.status`, a `Location` built from the destination and `Cache-Control: no-store`. The index object of a path without a trailing slash answers the same way, without the 308 that adds the slash.
+- The redirect comes before the conditional and `Range` headers, so a request that carries them gets the redirect too. It is decided on the object's metadata: a `HEAD` reads no body.
+- With precompressed variants, the canonical object's metadata decides, whichever variant the request accepts.
+- With `website_redirects.external: false`, an `https://` destination must name the request's `Host`. This is the only use of the `Host` besides admission and telemetry.
+- A destination that statica does not accept is ignored: the request is answered as without `website_redirects`, and the access log records `redirect=website_redirect_location` without `location`.
 
 ### Only a confirmed absence continues
 

@@ -359,6 +359,14 @@ func (c *Config) applyOptionalDefaults() {
 			c.tainted["compression.encodings"] = true
 		}
 	}
+	if w := c.WebsiteRedirects; w != nil {
+		if !c.present("website_redirects.status") {
+			w.Status = 301
+		}
+		if !c.present("website_redirects.query") {
+			w.Query = "preserve"
+		}
+	}
 	for i := range c.Redirects {
 		if !c.present(fmt.Sprintf("redirects[%d].query", i)) {
 			c.Redirects[i].Query = "drop"

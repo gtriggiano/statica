@@ -234,8 +234,13 @@ func staleCause(cause error) bool {
 // snapshot s: its ETag when that is a valid entity-tag and provider
 // conditional reads are enabled. A weak tag qualifies because If-None-Match
 // uses weak comparison. Empty means revalidation must fetch a new snapshot.
+// An empty object and one with a website redirect location have none: a 304
+// keeps the stored website redirect location, and every empty object has the
+// same ETag, so it could not show a redirect added or changed by uploading a
+// new empty object. Refetching an empty object costs about as much as a 304.
 func Validator(s Snapshot, conditionalReads bool) string {
-	if !conditionalReads || s.Kind != KindBody && s.Kind != KindMetadata || !httpcache.ValidETag(s.Metadata.ETag) {
+	if !conditionalReads || s.Kind != KindBody && s.Kind != KindMetadata || !httpcache.ValidETag(s.Metadata.ETag) ||
+		s.Metadata.Size == 0 || s.Metadata.WebsiteRedirectLocation != "" {
 		return ""
 	}
 	return s.Metadata.ETag

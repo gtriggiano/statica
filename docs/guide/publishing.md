@@ -76,7 +76,7 @@ Only an allowlist of each object's metadata reaches visitors ([origin metadata](
 
 Set `Content-Type` on every object. A generic type that a tool or provider stores by default, such as `binary/octet-stream`, is a valid media type, so statica sends it as is and the extension table does not apply.
 
-Everything else stays at the origin: user-defined metadata (`x-amz-meta-*`), storage, encryption and version headers, and S3 website redirect metadata (`x-amz-website-redirect-location`), which statica neither forwards nor follows: use [`redirects`](./redirects.md) instead.
+Everything else stays at the origin: user-defined metadata (`x-amz-meta-*`), storage, encryption and version headers, and S3 website redirect metadata (`x-amz-website-redirect-location`), which statica never forwards and follows only with [`website_redirects`](./redirects.md#redirect-with-object-metadata).
 
 For example, with the AWS CLI:
 

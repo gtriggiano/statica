@@ -555,7 +555,9 @@ func (c *Cache) head(ctx context.Context, key string, req httpcache.Request, rev
 		c.bypassed(ReasonUncacheable)
 		return &Lookup{Outcome: OutcomeBypass, Reason: ReasonUncacheable, Metadata: m, RequestTime: requested, ResponseTime: responded}, nil
 	}
-	if ok && snap.Kind == KindBody && httpcache.StrongETag(m.ETag) && m.ETag == snap.Metadata.ETag {
+	// A 304-style merge keeps the stored website redirect location: when the
+	// HEAD reports another one, the entry is replaced instead.
+	if ok && snap.Kind == KindBody && httpcache.StrongETag(m.ETag) && m.ETag == snap.Metadata.ETag && m.WebsiteRedirectLocation == snap.Metadata.WebsiteRedirectLocation {
 		merged, _ := httpcache.MergeNotModified(snap.Metadata, m) // equal entity-tags cannot conflict
 		next := Snapshot{Kind: KindBody, Metadata: merged, RequestTime: requested, ResponseTime: responded}
 		if Admissible(p, httpcache.Request{}, next) == AdmissionEligible {
