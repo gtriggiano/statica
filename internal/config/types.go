@@ -14,24 +14,25 @@ type LookupEnv func(string) (string, bool)
 type ByteSize int64
 
 type Config struct {
-	Hosts         []string        `yaml:"hosts,omitempty"`
-	Server        Server          `yaml:"server"`
-	Admin         Admin           `yaml:"admin"`
-	S3            S3              `yaml:"s3"`
-	Cache         Cache           `yaml:"cache"`
-	Index         string          `yaml:"index"`
-	NotFound      string          `yaml:"not_found,omitempty"`
-	Errors        Errors          `yaml:"errors"`
-	Redirects     []redirect.Rule `yaml:"redirects,omitempty"`
-	Headers       Headers         `yaml:"headers"`
-	CacheControl  CacheControl    `yaml:"cache_control"`
-	CORS          *CORS           `yaml:"cors,omitempty"`
-	Compression   Compression     `yaml:"compression"`
-	SPA           *SPA            `yaml:"spa,omitempty"`
-	Observability Observability   `yaml:"observability"`
-	tainted       map[string]bool
-	nodes         map[string]location
-	redirectSet   *redirect.Set
+	Hosts            []string          `yaml:"hosts,omitempty"`
+	Server           Server            `yaml:"server"`
+	Admin            Admin             `yaml:"admin"`
+	S3               S3                `yaml:"s3"`
+	Cache            Cache             `yaml:"cache"`
+	Index            string            `yaml:"index"`
+	NotFound         string            `yaml:"not_found,omitempty"`
+	Errors           Errors            `yaml:"errors"`
+	Redirects        []redirect.Rule   `yaml:"redirects,omitempty"`
+	WebsiteRedirects *WebsiteRedirects `yaml:"website_redirects,omitempty"`
+	Headers          Headers           `yaml:"headers"`
+	CacheControl     CacheControl      `yaml:"cache_control"`
+	CORS             *CORS             `yaml:"cors,omitempty"`
+	Compression      Compression       `yaml:"compression"`
+	SPA              *SPA              `yaml:"spa,omitempty"`
+	Observability    Observability     `yaml:"observability"`
+	tainted          map[string]bool
+	nodes            map[string]location
+	redirectSet      *redirect.Set
 }
 
 type Server struct {
@@ -164,6 +165,14 @@ type CachePolicy struct {
 	NegativeTTL       time.Duration
 	StaleIfError      time.Duration
 	RequestDirectives string
+}
+
+// WebsiteRedirects answers with a redirect for an object that declares a
+// destination in its x-amz-website-redirect-location metadata.
+type WebsiteRedirects struct {
+	Status   int    `yaml:"status"`
+	Query    string `yaml:"query"`
+	External bool   `yaml:"external"`
 }
 
 type Errors struct {

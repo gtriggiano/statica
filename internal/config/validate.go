@@ -130,6 +130,14 @@ func (c *Config) validate() error {
 		return c.err("redirects", "invalid redirect rules")
 	}
 	c.redirectSet = set
+	if w := c.WebsiteRedirects; w != nil {
+		if w.Status != 301 && w.Status != 302 && w.Status != 307 && w.Status != 308 {
+			return c.err("website_redirects.status", "must be 301, 302, 307 or 308")
+		}
+		if w.Query != "drop" && w.Query != "preserve" {
+			return c.err("website_redirects.query", "must be drop or preserve")
+		}
+	}
 	if err := c.validateHeaders(); err != nil {
 		return err
 	}

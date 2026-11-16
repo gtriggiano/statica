@@ -29,8 +29,8 @@ func metadata(result middleware.Metadata) (storage.Metadata, error) {
 	if raw.ContentLength < -1 {
 		return storage.Metadata{}, &storage.Error{Kind: storage.InvalidResponse, Size: -1}
 	}
-	m := storage.Metadata{Size: raw.ContentLength, ContentType: h.Get("Content-Type"), ContentEncoding: h.Get("Content-Encoding"), ContentDisposition: h.Get("Content-Disposition"), ContentLanguage: h.Get("Content-Language"), ContentRange: h.Get("Content-Range"), Checksum: storage.ChecksumUnavailable}
-	if unsafeValue(m.ContentType, m.ContentEncoding, m.ContentDisposition, m.ContentLanguage, m.ContentRange) || !cacheFields(h, &m) {
+	m := storage.Metadata{Size: raw.ContentLength, ContentType: h.Get("Content-Type"), ContentEncoding: h.Get("Content-Encoding"), ContentDisposition: h.Get("Content-Disposition"), ContentLanguage: h.Get("Content-Language"), ContentRange: h.Get("Content-Range"), WebsiteRedirectLocation: h.Get("X-Amz-Website-Redirect-Location"), Checksum: storage.ChecksumUnavailable}
+	if unsafeValue(m.ContentType, m.ContentEncoding, m.ContentDisposition, m.ContentLanguage, m.ContentRange, m.WebsiteRedirectLocation) || !cacheFields(h, &m) {
 		return storage.Metadata{}, &storage.Error{Kind: storage.InvalidResponse, Size: -1}
 	}
 	if raw.StatusCode == 206 {

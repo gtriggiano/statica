@@ -41,8 +41,11 @@ type Request struct {
 // has a Location and no Body; so has the 200 of a HEAD or of a GET with
 // Request.MetadataOnly. ObjectPath identifies the actual stored variant;
 // LogicalPath identifies the resource before its coding suffix.
+// WebsiteRedirect is the website redirect location of the canonical object,
+// whichever variant was selected.
 type Selection struct {
 	Key, ObjectPath, LogicalPath, Coding, ContentType string
+	WebsiteRedirect                                   string
 	Metadata                                          storage.Metadata
 	Body                                              io.ReadCloser
 	Resolution                                        Resolution
@@ -285,9 +288,9 @@ func (p *resolvePlan) candidate(ctx context.Context, logical Object) (*Selection
 		return nil, err
 	}
 	defer func() { closeSelection(canonical) }()
-	canonicalType := ""
+	canonicalType, redirect := "", ""
 	if canonical != nil {
-		canonicalType = usableContentType(canonical.Metadata.ContentType)
+		canonicalType, redirect = usableContentType(canonical.Metadata.ContentType), canonical.Metadata.WebsiteRedirectLocation
 		if err := identifyCoding(canonical, ""); err != nil {
 			return nil, err
 		}
@@ -299,7 +302,7 @@ func (p *resolvePlan) candidate(ctx context.Context, logical Object) (*Selection
 		if p.preferences.q(canonical.Coding) == 0 {
 			return nil, reject(http.StatusNotAcceptable, "no acceptable representation")
 		}
-		p.decorate(canonical, logical, canonicalType)
+		p.decorate(canonical, logical, canonicalType, redirect)
 		selected := canonical
 		canonical = nil
 		return selected, nil
@@ -311,7 +314,7 @@ func (p *resolvePlan) candidate(ctx context.Context, logical Object) (*Selection
 			continue
 		}
 		if canonical != nil && p.precedes(canonical.Coding, coding) && p.preferences.q(canonical.Coding) > 0 {
-			p.decorate(canonical, logical, canonicalType)
+			p.decorate(canonical, logical, canonicalType, redirect)
 			selected := canonical
 			canonical = nil
 			return selected, nil
@@ -332,11 +335,11 @@ func (p *resolvePlan) candidate(ctx context.Context, logical Object) (*Selection
 			closeSelection(selected)
 			return nil, err
 		}
-		p.decorate(selected, logical, canonicalType)
+		p.decorate(selected, logical, canonicalType, redirect)
 		return selected, nil
 	}
 	if canonical != nil && p.preferences.q(canonical.Coding) > 0 {
-		p.decorate(canonical, logical, canonicalType)
+		p.decorate(canonical, logical, canonicalType, redirect)
 		selected := canonical
 		canonical = nil
 		return selected, nil
@@ -454,8 +457,8 @@ func identifyCoding(s *Selection, expected string) error {
 	return nil
 }
 
-func (p *resolvePlan) decorate(s *Selection, logical Object, canonicalType string) {
-	s.LogicalPath = logical.Path
+func (p *resolvePlan) decorate(s *Selection, logical Object, canonicalType, redirect string) {
+	s.LogicalPath, s.WebsiteRedirect = logical.Path, redirect
 	s.ContentType = canonicalType
 	if s.ContentType == "" {
 		s.ContentType = ExtensionContentType(logical.Path)

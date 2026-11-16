@@ -83,7 +83,7 @@ type Record struct {
 	// rejected request never has one, even when its rejection response
 	// failed; TerminationReason then still says why it failed.
 
-	OriginKey         string // exact selected key, only once object headers were committed
+	OriginKey         string // exact selected key, only once object headers or its website redirect were committed
 	Resolution        string
 	Outcome           string
 	TerminationReason string // finite D13 reason
@@ -96,6 +96,11 @@ type Record struct {
 	CacheCoalesced  bool
 	CacheBytes      int64
 	CacheDiagnostic string
+	// Redirect is the source of a redirect the selected object declared, and
+	// Location the destination sent for it, empty when it was not used.
+	// Location may carry the request's query and must be redacted before
+	// output; AccessLogger does.
+	Redirect, Location string
 }
 
 // Duration is the full response or abort duration.

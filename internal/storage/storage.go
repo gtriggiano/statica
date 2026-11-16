@@ -80,6 +80,9 @@ type Metadata struct {
 	RawDate, RawAge string
 	ContentRange    string
 	Checksum        ChecksumStatus
+	// WebsiteRedirectLocation is the object's x-amz-website-redirect-location,
+	// as stored: a destination that statica validates before any use.
+	WebsiteRedirectLocation string
 }
 
 type Capabilities struct{ ConditionalReads, RangeReads, Checksums bool }

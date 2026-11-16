@@ -51,6 +51,20 @@ func TestDefaultsAndExplicitValues(t *testing.T) {
 	}
 }
 
+func TestWebsiteRedirectsDefaults(t *testing.T) {
+	if c := parseOK(t, minimal); c.WebsiteRedirects != nil {
+		t.Fatal("website_redirects must be off without its block")
+	}
+	c := parseOK(t, minimal+"website_redirects: {}\n")
+	if w := c.WebsiteRedirects; w == nil || w.Status != 301 || w.Query != "preserve" || w.External {
+		t.Fatalf("wrong website_redirects defaults: %#v", w)
+	}
+	c = parseOK(t, minimal+"website_redirects: {status: 308, query: drop, external: true}\n")
+	if w := c.WebsiteRedirects; w.Status != 308 || w.Query != "drop" || !w.External {
+		t.Fatalf("explicit website_redirects values replaced: %#v", w)
+	}
+}
+
 func TestExplicitZerosAndFalseRemain(t *testing.T) {
 	c := parseOK(t, minimal+"cache:\n  enabled: false\n  ttl: 0s\n  negative_ttl: 0s\nobservability:\n  access_log: false\n  log_client_ip: false\n  redact_query_params: []\n")
 	if c.Cache.Enabled || c.Cache.TTL != 0 || c.Cache.NegativeTTL != 0 || c.Observability.AccessLog || c.Observability.LogClientIP || len(c.Observability.RedactQueryParams) != 0 {
@@ -159,6 +173,7 @@ func TestValidationFailures(t *testing.T) {
 		{"healthtimeout", minimal + "admin: {origin_health: {enabled: true, timeout: 30s}}", "admin.origin_health.timeout"}, {"healthstale", minimal + "admin: {origin_health: {enabled: true, max_staleness: 33s}}", "admin.origin_health.max_staleness"}, {"healthkey", minimal + "admin: {origin_health: {key: ../private}}", "admin.origin_health.key"},
 		{"badindex", minimal + "index: a/b.html", "index"}, {"badnotfound", minimal + "not_found: /404.html", "not_found"}, {"denial", minimal + "errors: {access_denied: ignore}", "errors.access_denied"}, {"compression", minimal + "compression: {mode: dynamic}", "compression.mode"}, {"offencodings", minimal + "compression: {encodings: []}", "compression.encodings"}, {"emptyencodings", minimal + "compression: {mode: precompressed, encodings: []}", "compression.encodings"}, {"duplicateencodings", minimal + "compression: {mode: precompressed, encodings: [br, br]}", "compression.encodings[1]"}, {"spashell", minimal + "spa: {}", "spa.fallback"}, {"spaincludes", minimal + "spa: {fallback: index.html, include_prefixes: []}", "spa.include_prefixes"}, {"spaexcludes", minimal + "spa: {fallback: index.html, exclude_prefixes: [/assets]}", "spa.exclude_prefixes[0]"},
 		{"redactionempty", minimal + "observability: {redact_query_params: ['']}", "observability.redact_query_params[0]"}, {"redactionduplicate", minimal + "observability: {redact_query_params: [Token, token]}", "observability.redact_query_params[1]"}, {"loglevel", minimal + "observability: {log_level: trace}", "observability.log_level"}, {"corswildcard", minimal + "cors: {allowed_origins: ['*']}", "cors.allowed_origins[0]"}, {"corspath", minimal + "cors: {allowed_origins: ['https://example.com/path']}", "cors.allowed_origins[0]"}, {"corsdup", minimal + "cors: {allowed_origins: ['https://Example.com', 'https://example.com:443']}", "cors.allowed_origins[1]"}, {"cachecontrol", minimal + "cache_control: {default: 'max-age='}", "cache_control.default"},
+		{"websitestatus", minimal + "website_redirects: {status: 303}", "website_redirects.status"}, {"websitequery", minimal + "website_redirects: {query: unmatched}", "website_redirects.query"}, {"websitequeryempty", minimal + "website_redirects: {query: ''}", "website_redirects.query"},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {

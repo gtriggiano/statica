@@ -71,11 +71,13 @@ func parseLevel(text string) (slog.Level, error) {
 // target is unparseable), query_redaction_failed and path_truncated (only
 // when true), status (always), outcome, resolution, cache, cache_reason,
 // cache_coalesced (only when true), origin_key (only for object-backed
-// responses), duration_ms (always), ttfb_ms (when a status was committed),
+// responses), redirect (the source of a redirect the object declared),
+// location (the Location sent for it, query values redacted and bounded like
+// path), duration_ms (always), ttfb_ms (when a status was committed),
 // bytes_written (always), error_class, termination_reason, cache_diagnostic
 // and, with log_client_ip, client_ip, peer_ip, client_ip_source and
-// client_ip_reason. Request headers, redirect destinations and provider
-// errors are never part of a Record, hence never logged.
+// client_ip_reason. Request headers, the destinations of redirect rules and
+// provider errors are never part of a Record, hence never logged.
 type AccessLogger struct {
 	handler  slog.Handler
 	enabled  bool
@@ -133,6 +135,8 @@ func (a *AccessLogger) Sink(r *Record) {
 	text("cache_reason", r.CacheReason)
 	flag("cache_coalesced", r.CacheCoalesced)
 	text("origin_key", r.OriginKey)
+	text("redirect", r.Redirect)
+	text("location", logLocation(r.Location, a.redact))
 	attrs = append(attrs, slog.Float64("duration_ms", float64(r.Duration().Microseconds())/1000))
 	if ttfb, ok := r.TTFB(); ok {
 		attrs = append(attrs, slog.Float64("ttfb_ms", float64(ttfb.Microseconds())/1000))
@@ -223,6 +227,27 @@ func logPath(escapedPath, rawQuery string, forceQuery bool, names []string) (pat
 		return bound(path, MaxPathBytes), failed, true
 	}
 	return path, failed, false
+}
+
+// logLocation is location with its query values redacted like the path's,
+// bounded to MaxPathBytes. A query that cannot be redacted is left out with
+// what follows it.
+func logLocation(location string, names []string) string {
+	if location == "" {
+		return ""
+	}
+	reference, fragment, hasFragment := strings.Cut(location, "#")
+	if base, query, ok := strings.Cut(reference, "?"); ok {
+		redacted, valid := redactQuery(query, names)
+		if !valid {
+			return bound(base, MaxPathBytes)
+		}
+		reference = base + "?" + redacted
+	}
+	if hasFragment {
+		reference += "#" + fragment
+	}
+	return bound(reference, MaxPathBytes)
 }
 
 // redactQuery replaces with Redacted the value of every '&'-separated

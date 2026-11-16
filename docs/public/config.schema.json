@@ -664,6 +664,45 @@
         }
       }
     },
+    "website_redirects": {
+      "description": "Answers with a redirect for an object that declares a destination in its x-amz-website-redirect-location metadata. Without it, such an object is served as stored.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "description": "Status of the redirect.",
+          "type": "integer",
+          "enum": [
+            301,
+            302,
+            307,
+            308
+          ],
+          "default": 301
+        },
+        "query": {
+          "description": "What happens to the query of the request: drop removes it, preserve adds it to a destination that has no query.",
+          "type": "string",
+          "anyOf": [
+            {
+              "enum": [
+                "drop",
+                "preserve"
+              ]
+            },
+            {
+              "$ref": "#/$defs/environment"
+            }
+          ],
+          "default": "preserve"
+        },
+        "external": {
+          "description": "true also follows https:// destinations on a host other than the request's.",
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
     "headers": {
       "description": "Static response headers.",
       "type": "object",

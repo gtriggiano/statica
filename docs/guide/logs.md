@@ -60,7 +60,7 @@ observability:
 Redaction applies to query values only. A URL that carries personal data or a secret in its path, such as `/invite/<token>/` or `/users/jane.doe@example.com`, is logged as sent. Keep such data out of URLs, or treat the logs as personal data: restrict access and set a retention period.
 :::
 
-Request headers, cookies, redirect destinations, credentials and origin error messages are never logged ([what is never logged](../reference/logs.md#what-is-never-logged)).
+Request headers, cookies, the destinations of redirect rules, credentials and origin error messages are never logged ([what is never logged](../reference/logs.md#what-is-never-logged)).
 
 ## Read an access event
 

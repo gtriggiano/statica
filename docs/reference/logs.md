@@ -171,7 +171,9 @@ The fields, in order:
 | `cache` | When a memory cache lookup decided the response | See [`cache`](#cache). |
 | `cache_reason` | With `cache=bypass` | See [`cache_reason`](#cache-reason). |
 | `cache_coalesced` | Only `true` | The request joined a shared fill that another request started. |
-| `origin_key` | When object headers were sent | The full object key, publication prefix included, including for `HEAD`, 304, 412, 206 and interrupted transfers. |
+| `origin_key` | When object headers were sent, or a website redirect was sent | The full object key, publication prefix included, including for `HEAD`, 304, 412, 206 and interrupted transfers. |
+| `redirect` | With [`website_redirects`](./configuration.md#website-redirects), when the object at the exact key or an index object declares a website redirect location | `website_redirect_location`. |
+| `location` | When the redirect that `redirect` names was sent | The `Location` sent, with redacted query values, cut to 8 KiB. Absent when the destination was not accepted and the request was answered as without `website_redirects`, and on the 414 for a `Location` longer than 8 KiB. |
 | `duration_ms` | Always | From the moment statica's handler received the request until the response ended. |
 | `ttfb_ms` | When a status was sent | Until the status and headers were sent. |
 | `bytes_written` | Always | Body bytes written, partial transfers included. |
@@ -376,6 +378,8 @@ The `path` field keeps the query string, with the values of sensitive parameters
 - When a name or value cannot be decoded into text without control characters, the query is left out of `path` and `query_redaction_failed=true` is added. This also applies when the list is empty.
 - After redaction, `path` is cut to 8 KiB, with `path_truncated=true`.
 
+The `location` field follows the same rules, without a flag: a query that cannot be decoded is left out of `location`, with the fragment that follows it, and `location` is cut to 8 KiB.
+
 Redaction affects the log only. Responses, redirects and origin requests are not changed.
 
 ## Client addresses
@@ -396,7 +400,7 @@ During a shutdown, the remaining lines are written before statica exits, within 
 ## What is never logged
 
 - Request headers, such as `Cookie`, `Authorization`, `Referer` and `User-Agent`, and response headers.
-- Redirect destinations (`Location`).
+- The destinations of [`redirects`](./configuration.md#redirects) rules and of the trailing-slash redirect (`Location`).
 - Origin error messages and response bodies, credentials, the bucket name and the endpoint.
 - The text of Go's HTTP server errors, such as TLS handshake errors. Only a handler failure becomes an event, `http_server_error` or `admin_http_error`, without any of its text.
 - Requests refused by Go's HTTP server before statica's handler, and requests to the admin listener.

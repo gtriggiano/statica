@@ -9,7 +9,7 @@ This page lists the status codes that the public listener sends and when, the he
 | 200 OK | An object: the object at the exact key, the `index` object of a path ending in `/`, or the SPA shell. A `HEAD` gets the headers of the `GET` without a body. |
 | 204 No Content | An allowed CORS preflight (`OPTIONS`). |
 | 206 Partial Content | A satisfiable single byte range on a `GET`. See [Ranges and conditional requests](../architecture/ranges-and-conditionals.md). |
-| 301, 302, 307, 308 | A [`redirects`](./configuration.md#redirects) rule matched; the status is the rule's. |
+| 301, 302, 307, 308 | A [`redirects`](./configuration.md#redirects) rule matched; the status is the rule's. With [`website_redirects`](./configuration.md#website-redirects), also an object that declares a website redirect location; the status is `website_redirects.status`. |
 | 304 Not Modified | `If-None-Match`, or `If-Modified-Since` without `If-None-Match`, matched the object. |
 | 308 Permanent Redirect | Also when the path has no trailing slash, the object at the exact key is missing and `<path>/<index>` exists. `Location` is the path with `/` added, query included. |
 | 400 Bad Request | A malformed `Host`; a `GET` or `HEAD` with a request body; an invalid request target; a redirect rule whose destination cannot hold the request's values; an invalid object key. |
@@ -104,7 +104,7 @@ Header names are case-insensitive; Go's HTTP/1.1 server writes them in its canon
 | `Content-Disposition`, `Content-Language` | The object's values, when they are well formed. |
 | `Accept-Ranges` | `bytes`, on 200 and 206 responses for an object when `s3.features.range_reads` and `s3.features.conditional_reads` are both `true` and the object has a known length and a strong entity tag. Absent otherwise, including on 304, 412 and the `not_found` object's 404; statica never sends `none`. See [Ranges and conditional requests](../architecture/ranges-and-conditionals.md#accept-ranges). |
 | `Content-Range` | `bytes <first>-<last>/<size>` on a 206, `bytes */<size>` on a 416. |
-| `Location` | On a redirect: the rule's destination, or the path with a trailing slash. |
+| `Location` | On a redirect: the rule's destination, the object's website redirect location, or the path with a trailing slash. |
 | `Allow` | On a 405: `GET, HEAD`, or `GET, HEAD, OPTIONS` when `cors` is configured. |
 | `Access-Control-Allow-Origin` | With `cors` configured, when the request's single `Origin` is allowed: that `Origin`, exactly as sent. Not on a denied preflight. |
 | `Access-Control-Allow-Methods` | On an allowed preflight: `GET, HEAD`. |
@@ -121,7 +121,7 @@ statica adds each member once, only when it applies:
 | --- | --- |
 | `Origin` | Every response to a request that passed target validation, when `cors` is configured. Rejections for capacity, host, method, request body and target do not have it. |
 | `Access-Control-Request-Method`, `Access-Control-Request-Headers` | CORS preflight responses, 204 and 403. |
-| `Accept-Encoding` | Every response that comes from resolving the path: responses for an object, the 308 that adds a trailing slash, the built-in 404 for a missing object, 406 and 416. In both `compression.mode` values. Not on redirect rules, rejections or a denial masked as 404, and not on 502, 503 and 504 responses. |
+| `Accept-Encoding` | Every response that comes from resolving the path: responses for an object, the 308 that adds a trailing slash, a website redirect, the built-in 404 for a missing object, 406 and 416. In both `compression.mode` values. Not on redirect rules, rejections or a denial masked as 404, and not on 502, 503 and 504 responses. |
 | `Accept` | With `spa` configured, responses for a path that the SPA fallback covers once the object is missing: the shell and the 404. See [SPA fallback](../architecture/spa-fallback.md). |
 
 ### `Cache-Control`
@@ -184,13 +184,13 @@ statica forwards an allowlist of the origin's response metadata, after validatin
 Everything else stays at the origin:
 
 - user-defined object metadata (`x-amz-meta-*`);
-- website redirect metadata (`x-amz-website-redirect-location`): statica neither forwards nor follows it;
+- website redirect metadata (`x-amz-website-redirect-location`): statica never forwards it, and follows it only with [`website_redirects`](./configuration.md#website-redirects);
 - every other provider header, such as version, encryption, storage class, checksum and request ID headers, `Server`, `Set-Cookie` and the bucket's CORS headers;
 - the origin's status code, error messages and error bodies.
 
 These origin values make the whole origin response invalid, and the request gets 502 with `error_class=origin_invalid_response`:
 
-- an allowlisted value that contains CR, LF or NUL;
+- an allowlisted value, or the website redirect metadata, that contains CR, LF or NUL;
 - a `Last-Modified` that is not a valid date;
 - a `Content-Encoding` other than `identity`, `br` and `gzip`, ignoring case, or a `.br` or `.gz` variant whose stored `Content-Encoding` names another coding.
 
