@@ -70,7 +70,7 @@ One YAML file configures an instance. Only [`s3.bucket`](../reference/configurat
 - **Rate limiting or request filtering.** It has no per-client limits and no web application firewall. The only request limit is the global `server.max_concurrent_requests`.
 - **Dynamic compression.** It serves the bytes stored in the bucket and never compresses a response itself.
 - **Directory listings.** It never lists the bucket. A path that ends in `/` maps to its index object, never to a listing.
-- **Redirect rules from the bucket.** It ignores S3 website routing rules and serves HTML pages as stored. Redirects come from the `redirects` rules, the trailing-slash redirect and, with [`website_redirects`](./redirects.md#redirect-with-object-metadata), the website redirect metadata of objects.
+- **Redirect rules from the bucket.** It ignores S3 website routing rules. Redirects come from the `redirects` rules, the trailing-slash redirect and, when you enable them, the website redirect metadata of objects ([`website_redirects`](./redirects.md#redirect-with-object-metadata)) and the redirect pages of site generators ([`client_redirects`](./redirects.md#redirect-with-html-pages)). Otherwise it serves HTML pages as stored.
 - **Hot reload.** It reads its configuration and TLS certificate once, at startup. Restart it to apply a change.
 - **Disk cache.** The memory cache is not written to disk or shared between instances, and a restart empties it.
 - **Purge API.** It has no way to invalidate cached objects on request. A change in the bucket becomes visible once the cached copy expires.

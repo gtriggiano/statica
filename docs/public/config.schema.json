@@ -703,6 +703,74 @@
         }
       }
     },
+    "client_redirects": {
+      "description": "Answers with a redirect for an index object that is an HTML redirect page, which sends browsers to its destination with a meta refresh or a script. Without it, such a page is served as stored.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "description": "Status of the redirect.",
+          "type": "integer",
+          "enum": [
+            301,
+            302,
+            307,
+            308
+          ],
+          "default": 301
+        },
+        "detect": {
+          "description": "The redirects that can originate the response: meta_refresh, a meta refresh with a delay of zero, and script, a script that only sends the browser to one string. Every redirect of the page, listed or not, must lead to the same destination.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "anyOf": [
+              {
+                "enum": [
+                  "meta_refresh",
+                  "script"
+                ]
+              },
+              {
+                "$ref": "#/$defs/environment"
+              }
+            ]
+          },
+          "default": [
+            "meta_refresh",
+            "script"
+          ]
+        },
+        "max_object_bytes": {
+          "description": "Largest index object that statica reads to look for a redirect; a larger one is served as stored. Positive, at most 64KiB.",
+          "$ref": "#/$defs/byteSize",
+          "default": "8KiB"
+        },
+        "query": {
+          "description": "What happens to the query of the request: drop removes it, preserve adds it to a destination that has no query.",
+          "type": "string",
+          "anyOf": [
+            {
+              "enum": [
+                "drop",
+                "preserve"
+              ]
+            },
+            {
+              "$ref": "#/$defs/environment"
+            }
+          ],
+          "default": "preserve"
+        },
+        "external": {
+          "description": "true also follows https:// destinations on a host other than the request's.",
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
     "headers": {
       "description": "Static response headers.",
       "type": "object",

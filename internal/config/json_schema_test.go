@@ -168,6 +168,13 @@ var jsonSchemaNotes = map[string]jsonSchemaNote{
 	"website_redirects.query":    {doc: "What happens to the query of the request: drop removes it, preserve adds it to a destination that has no query.", enum: []string{"drop", "preserve"}},
 	"website_redirects.external": {doc: "true also follows https:// destinations on a host other than the request's."},
 
+	"client_redirects":                  {doc: "Answers with a redirect for an index object that is an HTML redirect page, which sends browsers to its destination with a meta refresh or a script. Without it, such a page is served as stored."},
+	"client_redirects.status":           {doc: "Status of the redirect.", intEnum: []int{301, 302, 307, 308}},
+	"client_redirects.detect":           {doc: "The redirects that can originate the response: meta_refresh, a meta refresh with a delay of zero, and script, a script that only sends the browser to one string. Every redirect of the page, listed or not, must lead to the same destination.", minItems: 1, unique: true, itemEnum: []string{"meta_refresh", "script"}},
+	"client_redirects.max_object_bytes": {doc: "Largest index object that statica reads to look for a redirect; a larger one is served as stored. Positive, at most 64KiB."},
+	"client_redirects.query":            {doc: "What happens to the query of the request: drop removes it, preserve adds it to a destination that has no query.", enum: []string{"drop", "preserve"}},
+	"client_redirects.external":         {doc: "true also follows https:// destinations on a host other than the request's."},
+
 	"headers":            {doc: "Static response headers."},
 	"headers.set":        {doc: "Headers added to every response statica writes on the public listener, errors and redirects included. Some header names are reserved.", keyPattern: jsonSchemaTokenPattern},
 	"headers.set.<name>": {doc: "Value of the header, sent as written.", minLength: 1},
@@ -217,6 +224,7 @@ cors:
 spa:
   fallback: index.html
 website_redirects: {}
+client_redirects: {}
 redirects:
   - from: /old
     to: /new

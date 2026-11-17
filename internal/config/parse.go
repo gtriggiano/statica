@@ -367,6 +367,20 @@ func (c *Config) applyOptionalDefaults() {
 			w.Query = "preserve"
 		}
 	}
+	if p := c.ClientRedirects; p != nil {
+		if !c.present("client_redirects.status") {
+			p.Status = 301
+		}
+		if !c.present("client_redirects.detect") {
+			p.Detect = []string{"meta_refresh", "script"}
+		}
+		if !c.present("client_redirects.max_object_bytes") {
+			p.MaxObjectBytes = 8 << 10
+		}
+		if !c.present("client_redirects.query") {
+			p.Query = "preserve"
+		}
+	}
 	for i := range c.Redirects {
 		if !c.present(fmt.Sprintf("redirects[%d].query", i)) {
 			c.Redirects[i].Query = "drop"

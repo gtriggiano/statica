@@ -46,7 +46,7 @@ Each package under `internal/` has one role. Read [the architecture overview](do
 | `internal/config/` | Loads and validates the YAML: `types.go` (fields, defaults), `parse.go`, `validate.go`. | [Configuration reference](docs/reference/configuration.md) |
 | `internal/app/` | Builds every component from a validated configuration, binds the listeners, drains on shutdown. | [Startup, readiness and shutdown](docs/architecture/lifecycle.md) |
 | `internal/httpserver/` | Public listener: admission, host allowlist, client IP and request ID, CORS, response writer. | [Request flow](docs/architecture/request-flow.md), [Security model](docs/architecture/security.md), [Timeouts](docs/architecture/timeouts.md) |
-| `internal/redirect/` | Compiled redirect rules. | [Request flow](docs/architecture/request-flow.md) |
+| `internal/redirect/` | Compiled redirect rules, and the destinations that objects and HTML redirect pages declare. | [Request flow](docs/architecture/request-flow.md) |
 | `internal/site/` | Path validation, key confinement to the publication prefix, key resolution, precompressed variants. | [Request flow](docs/architecture/request-flow.md), [Precompressed variants](docs/architecture/precompressed-variants.md), [SPA fallback](docs/architecture/spa-fallback.md) |
 | `internal/content/` | Object responses: conditional requests, ranges, headers, streaming. | [Ranges and conditional requests](docs/architecture/ranges-and-conditionals.md) |
 | `internal/httpcache/` | RFC 9111 mechanics: `Cache-Control` grammar, freshness, age. | [Cache-Control and Age](docs/architecture/cache-control.md) |
@@ -64,7 +64,7 @@ These hold across the code base. A change that weakens one needs the maintainer'
 
 - **The origin is read-only.** statica sends only `GetObject` and `HeadObject`. It never lists, writes or deletes objects.
 - **Keys stay inside the publication prefix.** `internal/site` validates paths and confines keys. It does no filesystem cleaning and no URL re-decoding.
-- **The `Host` never selects content.** It is used for admission, telemetry and to check that a website redirect stays on the request's host: never in an S3 request, an object key or a cache entry.
+- **The `Host` never selects content.** It is used for admission, telemetry and to check that a website redirect or a redirect page stays on the request's host: never in an S3 request, an object key or a cache entry.
 - **Configuration is immutable.** Everything is built and validated before any socket opens; there is no reload.
 - **Every resource has a configured ceiling, and statica refuses work instead of queueing it.** A new resource that clients can consume needs a limit.
 - **An origin failure never falls back** to an index, single-page-app or 404 object, and an origin 403 is a denial, never a missing object.
@@ -78,7 +78,7 @@ These hold across the code base. A change that weakens one needs the maintainer'
 | `make build` | Builds `bin/statica`. |
 | `make check` | Checks Go formatting and module tidiness, runs `go vet`, runs the tests with the race detector, and builds the binary. |
 | `make fmt` | Formats the Go sources. |
-| `make fuzz` | Fuzzes request-target parsing and object-key confinement for 10 seconds; set `FUZZ_TIME`, for example `make fuzz FUZZ_TIME=30s`. |
+| `make fuzz` | Fuzzes request-target parsing and object-key confinement, then the detection of redirect pages, for 10 seconds each; set `FUZZ_TIME`, for example `make fuzz FUZZ_TIME=30s`. |
 | `make vuln` | Scans the Go code with `govulncheck`, at the version pinned in the Makefile. |
 | `make workflows-check` | Lints `.github/workflows/*.yml` with `actionlint`, at the version pinned in the Makefile, without ShellCheck. |
 | `make workflows-audit` | Audits the workflows and the Dependabot configuration with `zizmor`, at the version pinned in the Makefile, without its online audits. Needs `uvx`. |

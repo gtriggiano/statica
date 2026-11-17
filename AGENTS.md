@@ -13,7 +13,7 @@ Go is the version in `go.mod`; an installed Go 1.21 or later downloads it unless
 | `make check` | gofmt check, `go mod tidy -diff`, `go vet`, tests with the race detector, build. The gate for every Go change. |
 | `make fmt` | Formats the Go sources. |
 | `go test -race -count=1 ./internal/config -run TestStrictYAML` | One package or one test while iterating. Finish with `make check`. |
-| `make fuzz` | Bounded fuzzing of request-target parsing and key confinement. |
+| `make fuzz` | Bounded fuzzing of request-target parsing, key confinement and redirect page detection. |
 | `make docs-install` | Installs the locked documentation dependencies (`npm ci`), once. |
 | `make docs-build` | Builds the site and fails on a dead link or anchor. |
 | `make docs-check` | Renders every built page in headless Chrome and checks its diagrams. Needs Chrome or Chromium. |
@@ -50,7 +50,7 @@ internal/cli/           Commands: serve, config validate|print|check-origin, ver
 internal/config/        Load and validate the YAML: types.go (fields, defaults), parse.go, validate.go
 internal/app/           Build every component from a validated config, bind listeners, drain on shutdown
 internal/httpserver/    Public listener, admission, host allowlist, client IP and request ID, CORS, response writer
-internal/redirect/      Compiled redirect rules
+internal/redirect/      Compiled redirect rules; destinations declared by objects and HTML redirect pages
 internal/site/          Path validation, key confinement to the publication prefix, key resolution, precompressed variants
 internal/content/       Object responses: conditional requests, ranges, headers, streaming
 internal/httpcache/     RFC 9111 mechanics: Cache-Control grammar, freshness, age
@@ -73,7 +73,7 @@ These hold across the code base, and are the same as in [CONTRIBUTING.md § Desi
 
 - **The origin is read-only.** statica sends only `GetObject` and `HeadObject`. It never lists, writes or deletes objects.
 - **Keys stay inside the publication prefix.** `internal/site` validates paths and confines keys. It does no filesystem cleaning and no URL re-decoding.
-- **The `Host` never selects content.** It is used for admission, telemetry and to check that a website redirect stays on the request's host: never in an S3 request, an object key or a cache entry.
+- **The `Host` never selects content.** It is used for admission, telemetry and to check that a website redirect or a redirect page stays on the request's host: never in an S3 request, an object key or a cache entry.
 - **Configuration is immutable.** Everything is built and validated before any socket opens; there is no reload.
 - **Every resource has a configured ceiling, and statica refuses work instead of queueing it.** A new resource that clients can consume needs a limit.
 - **An origin failure never falls back** to an index, single-page-app or 404 object, and an origin 403 is a denial, never a missing object.

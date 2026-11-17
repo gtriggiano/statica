@@ -93,7 +93,7 @@ Target validation runs first, so a hidden or invalid path gets its 404 or 400 ev
 
 ### After resolution
 
-Once resolution has selected an object that declares no [website redirect](#website-redirects), the conditional request headers and a `Range` header are evaluated against it, then the object response is written: 200 OK, 206 Partial Content, 304 Not Modified, 412 Precondition Failed or 416 Range Not Satisfiable. A `HEAD` request follows the same resolution and gets the headers a `GET` would get, without a body; `Range` is ignored on `HEAD`. [Ranges and conditional requests](./ranges-and-conditionals.md) describes these rules.
+Once resolution has selected an object that declares no [website redirect](#website-redirects) and is no [redirect page](#redirect-pages), the conditional request headers and a `Range` header are evaluated against it, then the object response is written: 200 OK, 206 Partial Content, 304 Not Modified, 412 Precondition Failed or 416 Range Not Satisfiable. A `HEAD` request follows the same resolution and gets the headers a `GET` would get, without a body; `Range` is ignored on `HEAD`. [Ranges and conditional requests](./ranges-and-conditionals.md) describes these rules.
 
 ## From path to object
 
@@ -136,8 +136,17 @@ With [`website_redirects`](../reference/configuration.md#website-redirects), an 
 - The response has `website_redirects.status`, a `Location` built from the destination and `Cache-Control: no-store`. The index object of a path without a trailing slash answers the same way, without the 308 that adds the slash.
 - The redirect comes before the conditional and `Range` headers, so a request that carries them gets the redirect too. It is decided on the object's metadata: a `HEAD` reads no body.
 - With precompressed variants, the canonical object's metadata decides, whichever variant the request accepts.
-- With `website_redirects.external: false`, an `https://` destination must name the request's `Host`. This is the only use of the `Host` besides admission and telemetry.
+- With `website_redirects.external: false`, an `https://` destination must name the request's `Host`. This check, and the same check for [redirect pages](#redirect-pages), are the only uses of the `Host` besides admission and telemetry.
 - A destination that statica does not accept is ignored: the request is answered as without `website_redirects`, and the access log records `redirect=website_redirect_location` without `location`.
+
+### Redirect pages
+
+Static site generators publish a moved page as a small HTML page that sends browsers to its new URL with a meta refresh or a script. With [`client_redirects`](../reference/configuration.md#client-redirects), statica answers with a redirect for such a page. This applies to index objects only, not to the object at an exact key, the SPA shell or the `not_found` object:
+
+- After resolution has selected an index object, or the index object behind the 308 that adds the slash, and no website redirect answered, statica reads the page when it is HTML, has no `Content-Encoding` and is at most [`client_redirects.max_object_bytes`](../reference/configuration.md#client-redirects-max-object-bytes). A `GET` uses the body that resolution reads, also behind the 308. A `HEAD`, a range request and a request that selects a precompressed variant read the canonical object once more, through the memory cache.
+- When the page declares one destination that statica accepts, as [`client_redirects.detect`](../reference/configuration.md#client-redirects-detect) describes, the response has `client_redirects.status`, a `Location` and `Cache-Control: no-store`, before the conditional and `Range` headers. The index object of a path without a trailing slash answers without the 308.
+- Any other page is served as stored, and a `GET` for it, with or without a range, uses the bytes already read. The access log records `redirect=meta_refresh` or `redirect=script` when a destination was found, and `location` only when it was sent.
+- The page read follows the rules of the object reads: a failure is an error response, never the page served without its check, and a page that changed or disappeared since its selection restarts resolution once, then answers 503 Service Unavailable.
 
 ### Only a confirmed absence continues
 

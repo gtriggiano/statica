@@ -296,12 +296,14 @@ A request waiting for a shared fill gives up at its own deadline, `server.respon
 
 A `HEAD` is answered from memory, as `cache=metadata_hit`, when a fresh body or metadata entry exists, and as missing when a fresh negative entry exists. `HEAD` requests never count as `hit`, so they do not inflate the body hit ratio. A range request reads its metadata the same way ([Ranges](#ranges)).
 
-Otherwise the `HEAD` sends its own `HeadObject` to the origin, within its own deadlines and outside any shared fill, and stores the answer as a metadata entry. A `HEAD` reads no body itself:
+Otherwise the `HEAD` sends its own `HeadObject` to the origin, within its own deadlines and outside any shared fill, and stores the answer as a metadata entry. Apart from the redirect pages below, a `HEAD` reads no body itself:
 
 - When the entry it found was a stale body whose strong `ETag` and website redirect metadata match the origin's, that body entry is updated with the merged metadata, and the request reports `cache=revalidated`.
 - When the `ETag` differs or is weak, or the website redirect metadata differs, the metadata entry replaces the body entry, and the next `GET` fetches the object.
 - A 403 removes the entry and serves no stale copy; other failures can serve the stale entry under stale-if-error, as for a `GET`.
 - S3 answers a missing object to a `HeadObject` with a 404 that carries no error code, so a `HEAD` cannot confirm an absence by itself. Resolution then reads the same key with an ordinary `GET` through the memory cache, a shared fill like any other. If the object is missing, that `GET` stores the negative entry that later `HEAD` and range requests reuse; if the object exists after all, it downloads and stores the object like any `GET` miss.
+
+With [`client_redirects`](../reference/configuration.md#client-redirects), a `HEAD` or a range request for an index page that statica checks for a redirect also reads the page's body, through the memory cache as a `GET` does, so the body can be stored and found in memory by later requests ([redirect pages](./request-flow.md#redirect-pages)).
 
 ## Ranges
 

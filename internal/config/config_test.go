@@ -65,6 +65,20 @@ func TestWebsiteRedirectsDefaults(t *testing.T) {
 	}
 }
 
+func TestClientRedirectsDefaults(t *testing.T) {
+	if c := parseOK(t, minimal); c.ClientRedirects != nil {
+		t.Fatal("client_redirects must be off without its block")
+	}
+	c := parseOK(t, minimal+"client_redirects: {}\n")
+	if p := c.ClientRedirects; p == nil || p.Status != 301 || strings.Join(p.Detect, ",") != "meta_refresh,script" || p.MaxObjectBytes != 8<<10 || p.Query != "preserve" || p.External {
+		t.Fatalf("wrong client_redirects defaults: %#v", p)
+	}
+	c = parseOK(t, minimal+"client_redirects: {status: 302, detect: [script], max_object_bytes: 64KiB, query: drop, external: true}\n")
+	if p := c.ClientRedirects; p.Status != 302 || strings.Join(p.Detect, ",") != "script" || p.MaxObjectBytes != 64<<10 || p.Query != "drop" || !p.External {
+		t.Fatalf("explicit client_redirects values replaced: %#v", p)
+	}
+}
+
 func TestExplicitZerosAndFalseRemain(t *testing.T) {
 	c := parseOK(t, minimal+"cache:\n  enabled: false\n  ttl: 0s\n  negative_ttl: 0s\nobservability:\n  access_log: false\n  log_client_ip: false\n  redact_query_params: []\n")
 	if c.Cache.Enabled || c.Cache.TTL != 0 || c.Cache.NegativeTTL != 0 || c.Observability.AccessLog || c.Observability.LogClientIP || len(c.Observability.RedactQueryParams) != 0 {
@@ -174,6 +188,8 @@ func TestValidationFailures(t *testing.T) {
 		{"badindex", minimal + "index: a/b.html", "index"}, {"badnotfound", minimal + "not_found: /404.html", "not_found"}, {"denial", minimal + "errors: {access_denied: ignore}", "errors.access_denied"}, {"compression", minimal + "compression: {mode: dynamic}", "compression.mode"}, {"offencodings", minimal + "compression: {encodings: []}", "compression.encodings"}, {"emptyencodings", minimal + "compression: {mode: precompressed, encodings: []}", "compression.encodings"}, {"duplicateencodings", minimal + "compression: {mode: precompressed, encodings: [br, br]}", "compression.encodings[1]"}, {"spashell", minimal + "spa: {}", "spa.fallback"}, {"spaincludes", minimal + "spa: {fallback: index.html, include_prefixes: []}", "spa.include_prefixes"}, {"spaexcludes", minimal + "spa: {fallback: index.html, exclude_prefixes: [/assets]}", "spa.exclude_prefixes[0]"},
 		{"redactionempty", minimal + "observability: {redact_query_params: ['']}", "observability.redact_query_params[0]"}, {"redactionduplicate", minimal + "observability: {redact_query_params: [Token, token]}", "observability.redact_query_params[1]"}, {"loglevel", minimal + "observability: {log_level: trace}", "observability.log_level"}, {"corswildcard", minimal + "cors: {allowed_origins: ['*']}", "cors.allowed_origins[0]"}, {"corspath", minimal + "cors: {allowed_origins: ['https://example.com/path']}", "cors.allowed_origins[0]"}, {"corsdup", minimal + "cors: {allowed_origins: ['https://Example.com', 'https://example.com:443']}", "cors.allowed_origins[1]"}, {"cachecontrol", minimal + "cache_control: {default: 'max-age='}", "cache_control.default"},
 		{"websitestatus", minimal + "website_redirects: {status: 303}", "website_redirects.status"}, {"websitequery", minimal + "website_redirects: {query: unmatched}", "website_redirects.query"}, {"websitequeryempty", minimal + "website_redirects: {query: ''}", "website_redirects.query"},
+		{"clientstatus", minimal + "client_redirects: {status: 303}", "client_redirects.status"}, {"clientdetectempty", minimal + "client_redirects: {detect: []}", "client_redirects.detect"}, {"clientdetect", minimal + "client_redirects: {detect: [refresh]}", "client_redirects.detect[0]"}, {"clientdetectduplicate", minimal + "client_redirects: {detect: [script, script]}", "client_redirects.detect[1]"},
+		{"clientsizezero", minimal + "client_redirects: {max_object_bytes: 0KiB}", "client_redirects.max_object_bytes"}, {"clientsizelarge", minimal + "client_redirects: {max_object_bytes: 65KiB}", "client_redirects.max_object_bytes"}, {"clientquery", minimal + "client_redirects: {query: unmatched}", "client_redirects.query"},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
