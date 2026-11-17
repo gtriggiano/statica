@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.0](https://github.com/gtriggiano/statica/compare/v1.1.0...v1.2.0) (2026-11-17)
+
+
+### Features
+
+* answer HTML redirect pages of index objects with redirects ([#18](https://github.com/gtriggiano/statica/issues/18)) ([4d2b740](https://github.com/gtriggiano/statica/commit/4d2b7403828039874442c93a18ff2007fdb987b1))
+* redirect objects that declare x-amz-website-redirect-location ([#16](https://github.com/gtriggiano/statica/issues/16)) ([10a70b2](https://github.com/gtriggiano/statica/commit/10a70b2f08c8e4b9d08e585a99c20dca7467de7e))
+
 ## [1.1.0](https://github.com/gtriggiano/statica/compare/v1.0.0...v1.1.0) (2026-11-12)
 
 
