@@ -83,7 +83,7 @@ type Record struct {
 	// rejected request never has one, even when its rejection response
 	// failed; TerminationReason then still says why it failed.
 
-	OriginKey         string // exact selected key, only once object headers or its website redirect were committed
+	OriginKey         string // exact selected key, only once object headers or its redirect were committed
 	Resolution        string
 	Outcome           string
 	TerminationReason string // finite D13 reason

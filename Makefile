@@ -24,7 +24,7 @@ help:
 	@echo "make ci              Run Go checks, vulnerability scan, workflow lint, docs build and checks"
 	@echo "make build           Build statica in bin/"
 	@echo "make fmt             Format Go sources"
-	@echo "make fuzz            Fuzz request-target and key safety for $(FUZZ_TIME)"
+	@echo "make fuzz            Fuzz request-target and key safety, and redirect page detection, for $(FUZZ_TIME) each"
 	@echo "make vuln            Scan Go code using pinned govulncheck"
 	@echo "make workflows-check Validate GitHub Actions workflows"
 	@echo "make workflows-audit Audit workflows and Dependabot configuration using pinned zizmor (needs uv)"
@@ -55,7 +55,8 @@ test:
 	$(GO) test -race -count=1 ./...
 
 fuzz:
-	$(GO) test ./internal/site -run='^$$' -fuzz=FuzzParseTarget -fuzztime=$(FUZZ_TIME) -parallel=2
+	$(GO) test ./internal/site -run='^$$' -fuzz=FuzzParseTarget -fuzztime=$(FUZZ_TIME) -fuzzminimizetime=1x -parallel=2
+	$(GO) test ./internal/redirect -run='^$$' -fuzz=FuzzFindPageRedirect -fuzztime=$(FUZZ_TIME) -fuzzminimizetime=1x -parallel=2
 
 mod-check:
 	$(GO) mod tidy -diff

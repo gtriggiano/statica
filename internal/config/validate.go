@@ -138,6 +138,27 @@ func (c *Config) validate() error {
 			return c.err("website_redirects.query", "must be drop or preserve")
 		}
 	}
+	if p := c.ClientRedirects; p != nil {
+		if p.Status != 301 && p.Status != 302 && p.Status != 307 && p.Status != 308 {
+			return c.err("client_redirects.status", "must be 301, 302, 307 or 308")
+		}
+		if len(p.Detect) == 0 {
+			return c.err("client_redirects.detect", "must be nonempty")
+		}
+		seen := map[string]bool{}
+		for i, d := range p.Detect {
+			if d != "meta_refresh" && d != "script" || seen[d] {
+				return c.err(fmt.Sprintf("client_redirects.detect[%d]", i), "must be a unique meta_refresh or script detector")
+			}
+			seen[d] = true
+		}
+		if p.MaxObjectBytes <= 0 || p.MaxObjectBytes > MaxClientRedirectBytes {
+			return c.err("client_redirects.max_object_bytes", "must be positive and at most 64KiB")
+		}
+		if p.Query != "drop" && p.Query != "preserve" {
+			return c.err("client_redirects.query", "must be drop or preserve")
+		}
+	}
 	if err := c.validateHeaders(); err != nil {
 		return err
 	}

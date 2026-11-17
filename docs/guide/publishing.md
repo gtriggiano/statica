@@ -188,7 +188,7 @@ level=warn event=http_request ... method=GET status=404 ... bytes_written=10 err
 
 ## Pitfalls
 
-- **A wrong `Content-Type` is served as stored.** Content is not inspected, and every response carries `X-Content-Type-Options: nosniff`, so a stylesheet stored as `text/plain` or `binary/octet-stream` is not applied by browsers.
+- **A wrong `Content-Type` is served as stored.** statica does not guess a type from the content, and every response carries `X-Content-Type-Options: nosniff`, so a stylesheet stored as `text/plain` or `binary/octet-stream` is not applied by browsers.
 - **Objects stored compressed in place are refused to some clients.** An object stored with `Content-Encoding: gzip` is sent compressed to clients that accept gzip or send no `Accept-Encoding`, and gets 406 Not Acceptable for a client that refuses gzip. Publish compressed copies next to the object instead ([Serve precompressed files](./precompressed-files.md)).
 - **`Expires: 0` and other malformed cache metadata disable caching.** The object is sent with `Cache-Control: no-store` and never stored in memory, and its access events record `cache_diagnostic=malformed_origin_cache_metadata`.
 

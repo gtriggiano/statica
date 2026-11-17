@@ -67,7 +67,7 @@ Whatever the request header is called, the response carries the ID in `X-Request
 
 ## Preserve the Host header
 
-statica reads the `Host` header, never `X-Forwarded-Host`. It uses the hostname to admit the request, logs it and labels metrics with it, and compares it with the host of a [website redirect](../reference/configuration.md#website-redirects-external); it never selects content by it ([Host never selects the origin](../architecture/security.md#host-never-selects-the-origin)). Configure the proxy to pass the client's original `Host` through.
+statica reads the `Host` header, never `X-Forwarded-Host`. It uses the hostname to admit the request, logs it and labels metrics with it, and compares it with the host of a [website redirect](../reference/configuration.md#website-redirects-external) or a [redirect page](../reference/configuration.md#client-redirects-external); it never selects content by it ([Host never selects the origin](../architecture/security.md#host-never-selects-the-origin)). Configure the proxy to pass the client's original `Host` through.
 
 List the names your site answers to in [`hosts`](../reference/configuration.md#hosts):
 
@@ -77,9 +77,9 @@ hosts: [www.example.com, example.com]
 
 - A request for any other name gets 421 Misdirected Request before it reaches the memory cache or the origin.
 - Without `hosts`, every valid hostname is admitted and becomes a value of the `host` label of the request metrics. A client that sends many names makes the number of series grow until the process restarts ([`host` label](../reference/metrics.md#host)).
-- If your proxy rewrites `Host` to an internal name, that internal name is what statica admits, logs and counts, and with `website_redirects.external: false` an `https://` website redirect to the public name is not sent.
+- If your proxy rewrites `Host` to an internal name, that internal name is what statica admits, logs and counts, and with `website_redirects.external: false` or `client_redirects.external: false` an `https://` redirect to the public name is not sent.
 
-statica ignores `X-Forwarded-Proto` too. The redirects it generates for a missing trailing slash carry a relative `Location`, a path and query, so they keep the scheme and host the client used. Redirect rules with a local destination do the same; rules with an `https://` destination use the host written in the rule. A website redirect carries the destination stored with the object.
+statica ignores `X-Forwarded-Proto` too. The redirects it generates for a missing trailing slash carry a relative `Location`, a path and query, so they keep the scheme and host the client used. Redirect rules with a local destination do the same; rules with an `https://` destination use the host written in the rule. A website redirect carries the destination stored with the object, and a redirect page the destination written in the page, a relative one resolved against the request path.
 
 ## Align the time limits
 

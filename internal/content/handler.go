@@ -4,12 +4,15 @@
 package content
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"math"
+	"mime"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -53,12 +56,14 @@ const (
 // Observation contains only selected object identity and bounded diagnostics.
 // OriginKey is populated when object headers are committed, including HEAD/304
 // and interrupted transfers, never for an unsuccessful origin candidate, and
-// for the object whose website redirect location answered the request.
+// for the object whose website redirect location or redirect page answered
+// the request.
 //
 // Redirect names the source of a redirect that the selected object declared,
-// RedirectWebsite, whether or not it was used; Location is the Location sent
-// for it, empty when the destination was not acceptable, when it was too long
-// (414), or when a deadline replaced the redirect.
+// RedirectWebsite, RedirectMetaRefresh or RedirectScript, whether or not it
+// was used; Location is the Location sent for it, empty when the destination
+// was not acceptable, when it was too long (414), or when a deadline replaced
+// the redirect.
 //
 // With WithCache, CacheOutcome and CacheReason classify the lookup that
 // decided the response, for the access log's cache field and
@@ -72,7 +77,9 @@ const (
 // metadata: when it then reads the object's body through the cache, for a
 // 200 or a range sliced from memory, that read replaces it; a guarded origin
 // range read does not, so a range served with metadata from memory and bytes
-// from the origin reports cache.OutcomeMetadataHit. Otherwise, as for a
+// from the origin reports cache.OutcomeMetadataHit. Likewise, a GET whose
+// redirect or page comes from the read of an index page for client_redirects,
+// apart from its selection, reports that read. Otherwise, as for a
 // built-in 404 or an origin failure, it is the request's last lookup, so a
 // built-in 404 whose last fallback candidate was a negative entry reports
 // cache.OutcomeNegativeHit. They are empty without a cache or a lookup.
@@ -97,9 +104,13 @@ type Observation struct {
 	Location          string
 }
 
-// RedirectWebsite is the Observation.Redirect of an object's
-// x-amz-website-redirect-location.
-const RedirectWebsite = "website_redirect_location"
+// Observation.Redirect values: an object's x-amz-website-redirect-location,
+// and the meta refresh or script of an HTML redirect page.
+const (
+	RedirectWebsite     = "website_redirect_location"
+	RedirectMetaRefresh = redirect.DetectMetaRefresh
+	RedirectScript      = redirect.DetectScript
+)
 
 type HandlerOption func(*handler)
 
@@ -186,6 +197,10 @@ type handler struct {
 	accessDenied                  string
 	website                       *redirect.ObjectPolicy
 	websiteStatus                 int
+	client                        *redirect.ObjectPolicy
+	clientStatus                  int
+	clientBytes                   int64
+	clientMeta, clientScript      bool
 	preparation, writeIdle, total time.Duration
 	observe                       func(Observation)
 }
@@ -208,6 +223,10 @@ func NewHandler(cfg *config.Config, reader storage.Reader, options ...HandlerOpt
 		preparation: cfg.Server.ResponseHeaderTimeout, writeIdle: cfg.Server.WriteIdleTimeout, total: cfg.Server.RequestTimeout}
 	if w := cfg.WebsiteRedirects; w != nil {
 		h.website, h.websiteStatus = &redirect.ObjectPolicy{Query: w.Query, External: w.External}, w.Status
+	}
+	if c := cfg.ClientRedirects; c != nil {
+		h.client, h.clientStatus, h.clientBytes = &redirect.ObjectPolicy{Query: c.Query, External: c.External}, c.Status, int64(c.MaxObjectBytes)
+		h.clientMeta, h.clientScript = slices.Contains(c.Detect, redirect.DetectMetaRefresh), slices.Contains(c.Detect, redirect.DetectScript)
 	}
 	h.cache.Rules = append([]config.CacheRule(nil), cfg.Cache.Rules...)
 	for i := range h.cache.Rules {
@@ -313,7 +332,7 @@ func ownBody(ctx context.Context, body io.ReadCloser) *ownedBody {
 	// A body resident in memory never blocks a read, so it needs no
 	// asynchronous Close: it stays pinned until released, which lets transfer
 	// write its bytes in place.
-	if _, resident := body.(*cache.Body); body != nil && !resident {
+	if _, resident := body.(memoryBody); body != nil && !resident {
 		b.stop = context.AfterFunc(ctx, b.close)
 	}
 	return b
@@ -373,7 +392,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	phase := startPreparation(ctx, start.Add(h.preparation))
 	defer phase.close()
 	ctx = phase.ctx
-	req := site.Request{Target: metadata.Target, Method: r.Method, Header: r.Header}
+	req := site.Request{Target: metadata.Target, Method: r.Method, Header: r.Header, IndexBody: h.client != nil}
 	ranges := strings.Join(r.Header.Values("Range"), ",")
 	// A GET with a single byte range resolves without a body when the
 	// provider can serve ranges: whether it needs one, and which, depends on
@@ -411,17 +430,54 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		body := ownBody(ctx, selection.Body)
 		// Each iteration releases its snapshot before a guarded retry. The final
 		// body's deferred release also runs on ErrAbortHandler.
-		if status, location, ok := h.websiteRedirect(selection, metadata, &observation); ok {
+		redirectStatus, location, redirected := h.websiteRedirect(selection, metadata, &observation)
+		key := selection.Key
+		if !redirected && h.clientEligible(selection) {
+			page, read, err := h.clientPage(ctx, selection, body.body)
+			if err != nil {
+				body.release()
+				if !errors.Is(err, errChanged) {
+					h.originError(w, r, ctx, err, &observation, phase)
+					return
+				}
+				if revision == 0 {
+					continue
+				}
+				failOrigin(r, &observation, ReasonOriginFailure, classInconsistent)
+				h.generated(w, r, http.StatusServiceUnavailable, &observation, phase)
+				return
+			}
+			redirectStatus, location, redirected = h.clientRedirect(selection, page.Body.(memoryBody).Bytes(), metadata, &observation)
+			key = selection.CanonicalKey
+			// A GET that serves the page uses the bytes read for it, also
+			// for a range or a precondition.
+			serve := !redirected && r.Method == http.MethodGet && selection.Status == http.StatusOK && selection.Key == selection.CanonicalKey
+			switch {
+			case page.Body == body.body:
+			case serve:
+				body.release()
+				adopt(selection, page, "identity")
+				body = ownBody(ctx, page.Body)
+			default:
+				_ = page.Body.Close()
+			}
+			if h.memory != nil && read && r.Method == http.MethodGet && (redirected || serve) {
+				// This lookup decided the response.
+				lookup, _ := cache.LastLookup(ctx, selection.CanonicalKey)
+				observation.CacheOutcome, observation.CacheReason, observation.CacheCoalesced = lookup.Outcome, lookup.Reason, lookup.Coalesced
+			}
+		}
+		if redirected {
 			body.release()
 			observation.Resolution = selection.Resolution
 			vary(w.Header(), selection)
 			if location != "" {
 				w.Header().Set("Location", location)
 			}
-			h.generated(w, r, status, &observation, phase)
+			h.generated(w, r, redirectStatus, &observation, phase)
 			// A deadline can replace the redirect with a 504 or 503.
-			if location != "" && observation.Status == status {
-				observation.OriginKey, observation.Location = selection.Key, location
+			if location != "" && observation.Status == redirectStatus {
+				observation.OriginKey, observation.Location = key, location
 			}
 			return
 		}
@@ -516,7 +572,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// metadata and bytes are one pinned revision, so no guard is needed.
 		// Like origin ranges, it still requires a strong entity-tag.
 		// Accept-Ranges is advertised from provider capabilities alone.
-		_, local := selection.Body.(*cache.Body)
+		_, local := selection.Body.(memoryBody)
 		local = local && selection.Metadata.Size >= 0 && httpcache.StrongETag(selection.Metadata.ETag)
 		var span byteRange
 		sliced := false
@@ -622,7 +678,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodHead || status == http.StatusNotModified || status == http.StatusPreconditionFailed {
 			return
 		}
-		if resident, ok := body.body.(*cache.Body); ok {
+		if resident, ok := body.body.(memoryBody); ok {
 			data := resident.Bytes()
 			if sliced {
 				data = data[span.start : span.end+1]
@@ -663,6 +719,150 @@ func (h *handler) websiteRedirect(s *site.Selection, m httpserver.RequestMetadat
 		return 0, "", false
 	}
 	return h.websiteStatus, location, true
+}
+
+// errChanged reports that an object changed between its selection and a
+// read of its body.
+var errChanged = errors.New("object changed during its response")
+
+// clientEligible reports whether client_redirects looks for a redirect in the
+// canonical object of s: the index object of a path, served with 200 or
+// behind the 308 that adds the slash, when that object exists, is HTML
+// without a content coding, and is not empty and not larger than
+// max_object_bytes. Ordinary objects, the SPA shell and the not_found object
+// are never read for it.
+func (h *handler) clientEligible(s *site.Selection) bool {
+	if h.client == nil || s.Resolution != site.ResolutionIndex || s.Status != http.StatusOK && s.Status != http.StatusPermanentRedirect ||
+		s.CanonicalKey == "" || s.Canonical.ContentEncoding != "" || s.Canonical.Size <= 0 || s.Canonical.Size > h.clientBytes {
+		return false
+	}
+	media, _, err := mime.ParseMediaType(s.ContentType)
+	return err == nil && media == "text/html"
+}
+
+// clientPage returns the canonical object of s, an eligible index
+// selection, with its whole body in memory, a memoryBody that the caller
+// owns, and whether it was read apart from the selection. When s selected
+// that object with its body, the body supplies it: in place when it is held
+// in memory, otherwise read into memory. Otherwise, as for a HEAD, a range
+// request or a precompressed variant, the object is read through the reader,
+// so through the memory cache when there is one; a read of another revision
+// than the selected one, or of no object, is errChanged. At most one byte
+// more than the selected size is ever read.
+func (h *handler) clientPage(ctx context.Context, s *site.Selection, body io.ReadCloser) (page *storage.Object, read bool, err error) {
+	if s.Key == s.CanonicalKey && body != nil {
+		if _, ok := body.(memoryBody); ok {
+			return &storage.Object{Metadata: s.Metadata, Body: body}, false, nil
+		}
+		data, err := readPage(body, s.Canonical.Size)
+		if err != nil {
+			return nil, false, err
+		}
+		return &storage.Object{Metadata: s.Metadata, Body: newPageBody(data)}, false, nil
+	}
+	object, err := h.reader.Get(ctx, s.CanonicalKey, storage.ReadOptions{})
+	if err == nil && object != nil && object.Body != nil {
+		page, err = h.checkPage(ctx, s, object)
+		return page, true, err
+	}
+	if object != nil && object.Body != nil {
+		_ = object.Body.Close()
+	}
+	switch {
+	case storage.IsKind(err, storage.NotFound):
+		return nil, true, errChanged
+	case err != nil:
+		return nil, true, err
+	}
+	return nil, true, &storage.Error{Kind: storage.InvalidResponse}
+}
+
+// checkPage returns object, a read of the canonical object of s, with its
+// whole body in memory, after checking that it is the selected revision. It
+// closes the body that it does not return.
+func (h *handler) checkPage(ctx context.Context, s *site.Selection, object *storage.Object) (*storage.Object, error) {
+	read := ownBody(ctx, object.Body)
+	coding := strings.ToLower(strings.TrimSpace(object.Metadata.ContentEncoding))
+	switch {
+	case object.Metadata.ContentRange != "":
+		read.release()
+		return nil, &storage.Error{Kind: storage.InvalidResponse}
+	case object.Metadata.ETag != s.Canonical.ETag || object.Metadata.Size >= 0 && object.Metadata.Size != s.Canonical.Size || coding != "" && coding != "identity":
+		read.release()
+		return nil, errChanged
+	}
+	if resident, ok := object.Body.(memoryBody); ok {
+		if int64(len(resident.Bytes())) != s.Canonical.Size {
+			read.release()
+			return nil, &storage.Error{Kind: storage.InvalidResponse}
+		}
+		return object, nil
+	}
+	data, err := readPage(object.Body, s.Canonical.Size)
+	read.release()
+	if err != nil {
+		return nil, err
+	}
+	return &storage.Object{Metadata: object.Metadata, Body: newPageBody(data)}, nil
+}
+
+// memoryBody is a body held in memory whole, which a response can write or
+// slice in place: a snapshot of the memory cache, or a page read for
+// client_redirects.
+type memoryBody interface {
+	io.ReadCloser
+	Bytes() []byte
+}
+
+// pageBody is a page read whole into memory.
+type pageBody struct {
+	*bytes.Reader
+	data []byte
+}
+
+func newPageBody(data []byte) *pageBody { return &pageBody{Reader: bytes.NewReader(data), data: data} }
+func (b *pageBody) Bytes() []byte       { return b.data }
+func (b *pageBody) Close() error        { return nil }
+
+// readPage reads a body of size bytes into memory. A body of another length
+// is an invalid response.
+func readPage(body io.Reader, size int64) ([]byte, error) {
+	page, err := io.ReadAll(io.LimitReader(body, size+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(page)) != size {
+		return nil, &storage.Error{Kind: storage.InvalidResponse}
+	}
+	return page, nil
+}
+
+// clientRedirect decides, like websiteRedirect, whether page, the canonical
+// object of an index selection, is an HTML redirect page that answers the
+// request: with the configured status and the Location of its destination,
+// resolved against the URL of the page, or with 414 and no Location when the
+// Location would be too long. A destination that leads back to the page is
+// not acceptable. It sets o.Redirect to the detector that found a
+// destination, whether or not that destination is acceptable.
+func (h *handler) clientRedirect(s *site.Selection, page []byte, m httpserver.RequestMetadata, o *Observation) (status int, location string, ok bool) {
+	// The URL of an index page ends with a slash, also behind the 308.
+	base := m.Target.EscapedPath
+	if s.Status == http.StatusPermanentRedirect {
+		base += "/"
+	}
+	destination, detector, found := redirect.FindPageRedirect(page, base, h.clientMeta, h.clientScript)
+	if !found {
+		return 0, "", false
+	}
+	o.Redirect = detector
+	location, ok, err := h.client.PageLocation(destination, base, m.Host, m.Target.RawQuery, m.Target.ForceQuery)
+	if err != nil {
+		return http.StatusRequestURITooLong, "", true
+	}
+	if !ok {
+		return 0, "", false
+	}
+	return h.clientStatus, location, true
 }
 
 // objectCoding is the content coding of a read of the selected object: the

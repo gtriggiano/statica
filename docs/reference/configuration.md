@@ -71,7 +71,7 @@ s3:
 
 ### Defaults
 
-statica applies a default only to an omitted field. An explicit value is never replaced, even when it is `false`, zero or empty, and an empty value without a meaning is an error (`hosts: []`, `index: ""`). Some defaults apply only when their block is present: `server.tls.min_version`, the fields of `admin.origin_health`, `compression.encodings` in `precompressed` mode, `redirects[].query` and the fields of `website_redirects`. `config print` shows the configuration with every default applied.
+statica applies a default only to an omitted field. An explicit value is never replaced, even when it is `false`, zero or empty, and an empty value without a meaning is an error (`hosts: []`, `index: ""`). Some defaults apply only when their block is present: `server.tls.min_version`, the fields of `admin.origin_health`, `compression.encodings` in `precompressed` mode, `redirects[].query` and the fields of `website_redirects` and `client_redirects`. `config print` shows the configuration with every default applied.
 
 ### Normalization
 
@@ -1015,6 +1015,88 @@ A fragment in the destination is kept with both values. A `Location` longer than
 **Default:** `false`
 
 Whether an `https://` destination can name another host than the request's. With `false`, the destination's hostname must equal the request's `Host`, both compared lowercase and without port or trailing dot: `https://www.example.com/new/` is accepted for a request to `www.example.com` only, and a destination on another host is not accepted. With `true`, any host is accepted. Local paths are accepted with both values.
+
+## `client_redirects`
+
+**Type:** mapping\
+**Default:** unset — statica serves HTML redirect pages as stored.
+
+| Field | Type | Default | Allowed |
+| --- | --- | --- | --- |
+| [`client_redirects.status`](#client-redirects-status) | integer | `301` | `301`, `302`, `307` or `308` |
+| [`client_redirects.detect`](#client-redirects-detect) | list of strings | `[meta_refresh, script]` | `meta_refresh` or `script`; nonempty, without duplicates |
+| [`client_redirects.max_object_bytes`](#client-redirects-max-object-bytes) | byte size | `8KiB` | positive; at most `64KiB` |
+| [`client_redirects.query`](#client-redirects-query) | string | `preserve` | `drop` or `preserve` |
+| [`client_redirects.external`](#client-redirects-external) | boolean | `false` |  |
+
+Answers with a redirect for an index object that is an HTML redirect page: a page that sends browsers to another URL with a meta refresh or a script, as static site generators publish for moved pages ([redirect pages](../architecture/request-flow.md#redirect-pages); [Redirect with HTML pages](../guide/redirects.md#redirect-with-html-pages)). With this block:
+
+- statica looks for a redirect in the index object of a path that ends in `/`, and in the index object behind the 308 that adds the slash, when its `Content-Type` is `text/html`, it has no `Content-Encoding`, and it is not empty and not larger than `max_object_bytes`. It never does for the object at an exact key, the SPA shell or the `not_found` object.
+- When the page declares a redirect, as [`detect`](#client-redirects-detect) describes, the response has the configured status, a `Location` header and `Cache-Control: no-store`, for a `GET` and a `HEAD`, whatever the conditional and `Range` headers of the request. A path without a trailing slash gets this redirect instead of the 308.
+- A [website redirect](#website-redirects) of the same object comes first.
+- With precompressed variants, the canonical object decides, whichever variant the request accepts.
+- A relative destination, such as `../new/`, is resolved against the URL of the page: the request path, with its trailing slash. The result must be a local absolute path or an `https://` URL, as for `website_redirects`. Any other destination is ignored and the page is served as stored: for example an `http://` URL, or a destination with a space or a non-ASCII character. So is a destination that leads back to the page, such as `./` or `#top`: the page's own path, with or without its trailing slash, unless it has a query other than the request's.
+- A page with a `<base>` element that has an `href`, an `<svg>` or `<math>` element, or a `<![CDATA[` section is served as stored.
+
+```yaml [config.yaml]
+client_redirects:
+  status: 301
+  detect: [meta_refresh, script]
+```
+
+### `client_redirects.status`
+
+**Type:** integer\
+**Default:** `301`\
+**Allowed:** `301`, `302`, `307` or `308`
+
+Status of the redirect response.
+
+### `client_redirects.detect`
+
+**Type:** list of strings\
+**Default:** `[meta_refresh, script]`\
+**Allowed:** `meta_refresh` or `script`; nonempty, without duplicates
+
+The redirects that can originate the response. statica finds every redirect of the page, whatever this list: they must all lead to the same destination, or the page is served as stored. Content inside `<template>` and `<noscript>` is ignored.
+
+| Value | Originates the redirect |
+| --- | --- |
+| `meta_refresh` | A `<meta http-equiv="refresh">` element with a URL and a delay written with zeros only: `0; url=/new/`, `0.0;URL='/new/'`. |
+| `script` | A recognized script, as described below. |
+
+A meta refresh with a delay that browsers also read as zero, such as `0.5`, never originates the redirect, but its destination must agree. One with a longer delay, such as `5`, or without a URL is not a redirect.
+
+statica reads scripts without running them. A `<script>` element counts when browsers run its text as JavaScript: it has no `src`, and its `type` is missing, empty, `module` or a JavaScript MIME type such as `text/javascript`. A script whose code does not name `location` is ignored. Any other script is:
+
+- **Recognized**, when its whole text, apart from a leading `"use strict"` and a final `;`, is one statement: an assignment of a string to `location`, `window.location`, `document.location` or `self.location`, or to their `href`, or a call of their `replace` or `assign` with a string. The string is written in single or double quotes. It can be followed by `+ location.search` and `+ location.hash`, also written `+ (location.search || '')`: the [`query`](#client-redirects-query) setting decides the query.
+- **Consistent**, when it sets the location otherwise, such as within a condition or a function, or through `top` or `parent`, which navigate another window when the page is in a frame, and its string literals hold exactly one value, its destination, apart from empty strings and strings made of `#`, `?` and `&` only. A consistent script never originates a redirect, since it may not set the location every time: its destination only has to agree.
+- **Inconsistent** otherwise, also when statica cannot read it, as with a regular expression, a division or an HTML-like comment (`<!--`). An inconsistent script makes the page ambiguous, and the page is served as stored.
+
+The [`redirect`](./logs.md#redirect) field of the access log names what originated the redirect.
+
+### `client_redirects.max_object_bytes`
+
+**Type:** byte size\
+**Default:** `8KiB`\
+**Allowed:** positive; at most `64KiB`
+
+Largest index object that statica reads to look for a redirect. A larger object is served as stored, without being read for it. The limit bounds the memory and the work that statica spends on a page.
+
+### `client_redirects.query`
+
+**Type:** string\
+**Default:** `preserve`\
+**Allowed:** `drop` or `preserve`
+
+What happens to the query of the request, as for [`website_redirects.query`](#website-redirects-query): `drop` keeps only the destination's own query, `preserve` adds the request's query to a destination that has none. A fragment in the destination is kept with both values. A `Location` longer than 8 KiB answers 414 URI Too Long.
+
+### `client_redirects.external`
+
+**Type:** boolean\
+**Default:** `false`
+
+Whether an `https://` destination can name another host than the request's, compared as for [`website_redirects.external`](#website-redirects-external). Local paths, and relative destinations, are accepted with both values.
 
 ## `headers`
 

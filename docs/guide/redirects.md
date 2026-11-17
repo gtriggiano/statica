@@ -1,6 +1,6 @@
 # Configure redirects
 
-Send visitors from old URLs to new ones, within the site or to another HTTPS origin, with rules that **statica** answers without reading the bucket, or with redirect metadata stored on objects.
+Send visitors from old URLs to new ones, within the site or to another HTTPS origin, with rules that **statica** answers without reading the bucket, with redirect metadata stored on objects, or with the redirect pages that static site generators publish.
 
 ## Prerequisites
 
@@ -217,6 +217,54 @@ The access event names the object and the destination:
 level=info event=http_request host=127.0.0.1 method=HEAD path="/old-page/?ref=feed" status=301 outcome=success resolution=index ... origin_key=old-page/index.html redirect=website_redirect_location location="/new-page/?ref=feed" ...
 ```
 
+## Redirect with HTML pages
+
+Static site generators publish a moved page as a small HTML page that sends browsers to the new URL, such as the aliases of Hugo, the `redirect_from` pages of Jekyll and the redirect plugins of Docusaurus and MkDocs. Such a page is an index object, such as `old-page/index.html`, with a meta refresh, a script, or both:
+
+```html
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta http-equiv="refresh" content="0; url=/new-page/">
+    <script>window.location.href = "/new-page/" + window.location.search + window.location.hash;</script>
+  </head>
+</html>
+```
+
+Browsers follow it, but crawlers, link checkers and other clients that do not run the page get a 200 with the page. With [`client_redirects`](../reference/configuration.md#client-redirects), statica answers with a redirect instead:
+
+```yaml [config.yaml]
+client_redirects:
+  status: 301
+```
+
+- Requests for `/old-page/` and `/old-page` both get 301 with `Location: /new-page/`: the index object redirects without the 308 that adds the slash. Only index objects are read: a redirect page at an exact key, such as `old.html`, is served as stored.
+- A relative destination, such as `../new-page/`, is resolved against the old page's URL. An `https://` URL must name the host of the request, unless you set [`client_redirects.external`](../reference/configuration.md#client-redirects-external) to `true`.
+- By default the request's query is added to a destination that has none ([`client_redirects.query`](../reference/configuration.md#client-redirects-query)), and a fragment in the destination is kept.
+- The `redirects` rules run first, then the [website redirect](#redirect-with-object-metadata) of the object, if any.
+- statica takes the destination from a meta refresh with a delay of zero, or from a script that does nothing but set the location to one string. A script that sets the location in more code, as the redirect page of MkDocs does, only confirms a meta refresh. Every meta refresh and script of the page must lead to the same destination. [`client_redirects.detect`](../reference/configuration.md#client-redirects-detect) describes the exact rules.
+
+Request the old path:
+
+```sh
+curl -sI 'http://127.0.0.1:8080/old-page/?ref=feed'
+```
+
+```text
+HTTP/1.1 301 Moved Permanently
+Cache-Control: no-store
+Location: /new-page/?ref=feed
+...
+```
+
+The access event names the page and the form of redirect that statica found in it:
+
+```text
+level=info event=http_request host=127.0.0.1 method=HEAD path="/old-page/?ref=feed" status=301 outcome=success resolution=index ... origin_key=old-page/index.html redirect=meta_refresh location="/new-page/?ref=feed" ...
+```
+
+A page that still answers 200 is served as stored. Its access event has `redirect` when statica found a redirect but did not accept its destination, and no `redirect` when it found none.
+
 ## Pitfalls
 
 - **Hidden paths cannot be redirected.** A path with a segment that starts with a dot, other than a first `.well-known`, gets 404 Not Found before the rules run, so `config validate` rejects a `from` such as `/.old/page`.
@@ -224,11 +272,16 @@ level=info event=http_request host=127.0.0.1 method=HEAD path="/old-page/?ref=fe
 - **Size limits.** Each template is at most 8 KiB. A request whose `Location` would exceed 8 KiB gets 414 URI Too Long, and a placeholder value longer than 256 bytes does not match.
 - **A website redirect that statica does not accept is ignored.** An `http://` destination, a relative one such as `new-page/`, or an `https://` URL to another host without `external: true` is ignored: the object is served as stored, often as an empty page, or a path without a trailing slash gets the 308 that adds it. The access event then has `redirect=website_redirect_location` and no `location`.
 - **Upload a redirect as a new object.** A metadata-only change, such as `aws s3 cp` of an object onto itself with `--website-redirect`, keeps the `ETag` of a nonempty object, and the memory cache keeps serving its copy without the redirect until the entry leaves the cache. `put-object` with an empty body, as above, takes effect when the cached entry expires.
+- **Ambiguous pages are served as stored.** A page whose meta refreshes and scripts lead to different destinations is not a redirect, and neither is a page with a script that uses `location` for anything else, such as a script that picks a language. A meta refresh with a delay, such as `content="5; url=/new/"`, or inside `<noscript>` does not count ([`client_redirects.detect`](../reference/configuration.md#client-redirects-detect)).
+- **A page cannot redirect to itself.** A destination such as `./` or `#top`, or the page's own URL, with or without its trailing slash, is ignored and the page is served.
+- **Redirect pages must be small.** An index page larger than [`client_redirects.max_object_bytes`](../reference/configuration.md#client-redirects-max-object-bytes), `8KiB` by default, is not read, and is served as stored. So is a page stored with a `Content-Encoding` or a `Content-Type` other than `text/html`.
+- **Destinations must be valid URLs.** A destination with a space or a non-ASCII character, such as `/café/`, is not accepted: write it percent-encoded, as `/caf%C3%A9/`. An `http://` destination is not accepted either.
 - **The trailing-slash redirect is separate.** statica's own 308 from `/guide` to `/guide/` happens during resolution, after the rules, and only when `guide/index.html` exists ([Publish a site to S3](./publishing.md)).
 
 ## Related pages
 
 - [`redirects` configuration reference](../reference/configuration.md#redirects): every rule of the template syntax.
 - [`website_redirects` configuration reference](../reference/configuration.md#website-redirects)
+- [`client_redirects` configuration reference](../reference/configuration.md#client-redirects)
 - [Request flow and URL mapping](../architecture/request-flow.md#redirect-rules)
 - [Publish a site to S3](./publishing.md)

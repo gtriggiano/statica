@@ -171,9 +171,9 @@ The fields, in order:
 | `cache` | When a memory cache lookup decided the response | See [`cache`](#cache). |
 | `cache_reason` | With `cache=bypass` | See [`cache_reason`](#cache-reason). |
 | `cache_coalesced` | Only `true` | The request joined a shared fill that another request started. |
-| `origin_key` | When object headers were sent, or a website redirect was sent | The full object key, publication prefix included, including for `HEAD`, 304, 412, 206 and interrupted transfers. |
-| `redirect` | With [`website_redirects`](./configuration.md#website-redirects), when the object at the exact key or an index object declares a website redirect location | `website_redirect_location`. |
-| `location` | When the redirect that `redirect` names was sent | The `Location` sent, with redacted query values, cut to 8 KiB. Absent when the destination was not accepted and the request was answered as without `website_redirects`, and on the 414 for a `Location` longer than 8 KiB. |
+| `origin_key` | When object headers were sent, or a website redirect or the redirect of a redirect page was sent | The full object key, publication prefix included, including for `HEAD`, 304, 412, 206 and interrupted transfers. |
+| `redirect` | With [`website_redirects`](./configuration.md#website-redirects), when the object at the exact key or an index object declares a website redirect location; with [`client_redirects`](./configuration.md#client-redirects), when an index object is a redirect page | `website_redirect_location`, `meta_refresh` or `script`: see [`redirect`](#redirect). |
+| `location` | When the redirect that `redirect` names was sent | The `Location` sent, with redacted query values, cut to 8 KiB. Absent when the destination was not accepted and the request was answered as without `website_redirects` or `client_redirects`, and on the 414 for a `Location` longer than 8 KiB. |
 | `duration_ms` | Always | From the moment statica's handler received the request until the response ended. |
 | `ttfb_ms` | When a status was sent | Until the status and headers were sent. |
 | `bytes_written` | Always | Body bytes written, partial transfers included. |
@@ -305,9 +305,19 @@ How statica selected the object, independently of the status. [Request flow](../
 | `spa` | The SPA shell, `spa.fallback`. |
 | `not_found` | A 404 for a missing object: the `not_found` object or the built-in page. |
 
+### `redirect`
+
+The source of a redirect that the selected object declares, whether or not statica sent it: `location` is present when it did.
+
+| Value | Meaning |
+| --- | --- |
+| `website_redirect_location` | The object's `x-amz-website-redirect-location` metadata, with [`website_redirects`](./configuration.md#website-redirects). |
+| `meta_refresh` | A meta refresh in an index page, with [`client_redirects`](./configuration.md#client-redirects), also when a script of the page leads to the same destination. |
+| `script` | A script redirect in an index page, with `client_redirects`, when no meta refresh can originate the redirect ([`client_redirects.detect`](./configuration.md#client-redirects-detect)). |
+
 ### `cache`
 
-The outcome of the memory cache lookup that decided the response. Absent with `cache.enabled: false`. A range request is decided on metadata: when its bytes then come through the memory cache, the field is the outcome of that body read, otherwise the outcome of the metadata read ([ranges in the memory cache](../architecture/memory-cache.md#ranges)).
+The outcome of the memory cache lookup that decided the response. Absent with `cache.enabled: false`. A range request is decided on metadata: when its bytes then come through the memory cache, the field is the outcome of that body read, otherwise the outcome of the metadata read ([ranges in the memory cache](../architecture/memory-cache.md#ranges)). Likewise, a `GET` whose redirect or page comes from an index page that [`client_redirects`](./configuration.md#client-redirects) read apart from resolution reports the outcome of that read; a `HEAD` keeps the outcome of its metadata read.
 
 | Value | Meaning |
 | --- | --- |
@@ -329,7 +339,7 @@ Only with `cache=bypass`: `disabled`, `request_no_store`, `shutdown`, `fills_ful
 | --- | --- |
 | A rejection reason | For a rejected request: `request_capacity`, `malformed_host`, `unknown_host`, `unsupported_method`, `request_body`, `invalid_target`, `cors_preflight_denied`, `invalid_redirect_input` or `invalid_object_key`. See [`statica_http_rejected_requests_total`](./metrics.md#statica-http-rejected-requests-total). |
 | `origin_` and an origin error kind | For an origin failure: `origin_` followed by an [origin `result`](./metrics.md#origin) other than `success`, such as `origin_denied`, `origin_unavailable`, `origin_throttled`, `origin_timeout` or `origin_invalid_response`. |
-| `origin_inconsistent` | The object kept changing while statica served a range request: its guarded range read, or the read of the whole object after its metadata, returned another revision twice (503). |
+| `origin_inconsistent` | The object kept changing while statica served a range request or read a redirect page: its guarded range read, or the read of the whole object after its metadata, returned another revision twice (503). |
 | `origin_timeout` | Also whenever a deadline, not the origin, ended the request before the headers (504). |
 | `origin_canceled` | A shutdown canceled the request before the headers. |
 | `origin_error` | Any other failure before the headers. |

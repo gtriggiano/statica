@@ -50,7 +50,7 @@ The next request for `/guide/` stops at step 6: the memory cache answers it from
 ## Design principles
 
 - **One site per instance.** A configuration has one `s3` block: one bucket and an optional publication prefix. To serve several sites, run one instance per site.
-- **Host never selects the origin.** The hostname is used for admission and telemetry, and to check that a website redirect stays on the request's host: it is never part of an S3 request, an object key or a memory cache entry ([Security model](./security.md#host-never-selects-the-origin)).
+- **Host never selects the origin.** The hostname is used for admission and telemetry, and to check that a website redirect or a redirect page stays on the request's host: it is never part of an S3 request, an object key or a memory cache entry ([Security model](./security.md#host-never-selects-the-origin)).
 - **Configuration is immutable.** statica validates its configuration and builds every component before it opens a socket, and nothing is reloaded: restart the process to apply a change.
 - **Every resource has a ceiling.** Connections, concurrent requests, request size, cache memory, shared fills and each phase of a request have a configured limit, and statica refuses work instead of queueing it ([request capacity](./request-flow.md#request-capacity), [cache limits](./memory-cache.md#limits-and-accounting), [time limits](./timeouts.md#the-limits)). These limits are ceilings that you choose, not measured capacities.
 - **The origin is the source of truth.** statica reads the bucket with `GetObject` and `HeadObject` only, and never lists, writes or deletes objects. The memory cache holds copies of origin responses and checks them against the origin when they expire.

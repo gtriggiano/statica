@@ -28,24 +28,31 @@ const (
 // Request is one resolution. MetadataOnly makes a GET read the candidates
 // it can answer with a 200 as a HEAD does, without a body: the caller sets it
 // for a range request and reads the body it needs itself. A custom 404 page,
-// which never answers a range, is still read with its body.
+// which never answers a range, is still read with its body. IndexBody keeps
+// the body of the index object behind a trailing-slash redirect, when it was
+// read with one, for the caller to inspect.
 type Request struct {
 	Target       Target
 	Method       string
 	Header       http.Header
 	MetadataOnly bool
+	IndexBody    bool
 }
 
 // Selection owns Body, if nonnil. The caller must close it. Metadata and Body
 // come from the same origin snapshot. A built-in 404 has an empty Key. A redirect
-// has a Location and no Body; so has the 200 of a HEAD or of a GET with
-// Request.MetadataOnly. ObjectPath identifies the actual stored variant;
+// has a Location and no Body, unless Request.IndexBody keeps it; the 200 of a
+// HEAD or of a GET with Request.MetadataOnly has no Body either. ObjectPath identifies the actual stored variant;
 // LogicalPath identifies the resource before its coding suffix.
 // WebsiteRedirect is the website redirect location of the canonical object,
-// whichever variant was selected.
+// whichever variant was selected. CanonicalKey and Canonical are the key and
+// metadata of the canonical object, whichever variant was selected, with its
+// ContentEncoding empty for identity as in Metadata; CanonicalKey is empty
+// when that object does not exist.
 type Selection struct {
 	Key, ObjectPath, LogicalPath, Coding, ContentType string
-	WebsiteRedirect                                   string
+	WebsiteRedirect, CanonicalKey                     string
+	Canonical                                         storage.Metadata
 	Metadata                                          storage.Metadata
 	Body                                              io.ReadCloser
 	Resolution                                        Resolution
@@ -200,7 +207,9 @@ func (r *Resolver) Resolve(ctx context.Context, req Request) (*Selection, error)
 		}
 		s, err := p.candidate(ctx, index)
 		if err == nil {
-			closeSelection(s)
+			if !req.IndexBody {
+				closeSelection(s)
+			}
 			location := req.Target.EscapedPath + "/"
 			if req.Target.RawQuery != "" || req.Target.ForceQuery {
 				location += "?" + req.Target.RawQuery
@@ -288,12 +297,13 @@ func (p *resolvePlan) candidate(ctx context.Context, logical Object) (*Selection
 		return nil, err
 	}
 	defer func() { closeSelection(canonical) }()
-	canonicalType, redirect := "", ""
+	var origin canonicalObject
 	if canonical != nil {
-		canonicalType, redirect = usableContentType(canonical.Metadata.ContentType), canonical.Metadata.WebsiteRedirectLocation
+		origin.contentType, origin.redirect = usableContentType(canonical.Metadata.ContentType), canonical.Metadata.WebsiteRedirectLocation
 		if err := identifyCoding(canonical, ""); err != nil {
 			return nil, err
 		}
+		origin.key, origin.metadata = canonical.Key, canonical.Metadata
 	}
 	if p.resolver.mode == "off" || !p.preferences.present {
 		if canonical == nil {
@@ -302,7 +312,7 @@ func (p *resolvePlan) candidate(ctx context.Context, logical Object) (*Selection
 		if p.preferences.q(canonical.Coding) == 0 {
 			return nil, reject(http.StatusNotAcceptable, "no acceptable representation")
 		}
-		p.decorate(canonical, logical, canonicalType, redirect)
+		p.decorate(canonical, logical, origin)
 		selected := canonical
 		canonical = nil
 		return selected, nil
@@ -314,7 +324,7 @@ func (p *resolvePlan) candidate(ctx context.Context, logical Object) (*Selection
 			continue
 		}
 		if canonical != nil && p.precedes(canonical.Coding, coding) && p.preferences.q(canonical.Coding) > 0 {
-			p.decorate(canonical, logical, canonicalType, redirect)
+			p.decorate(canonical, logical, origin)
 			selected := canonical
 			canonical = nil
 			return selected, nil
@@ -335,11 +345,11 @@ func (p *resolvePlan) candidate(ctx context.Context, logical Object) (*Selection
 			closeSelection(selected)
 			return nil, err
 		}
-		p.decorate(selected, logical, canonicalType, redirect)
+		p.decorate(selected, logical, origin)
 		return selected, nil
 	}
 	if canonical != nil && p.preferences.q(canonical.Coding) > 0 {
-		p.decorate(canonical, logical, canonicalType, redirect)
+		p.decorate(canonical, logical, origin)
 		selected := canonical
 		canonical = nil
 		return selected, nil
@@ -457,9 +467,16 @@ func identifyCoding(s *Selection, expected string) error {
 	return nil
 }
 
-func (p *resolvePlan) decorate(s *Selection, logical Object, canonicalType, redirect string) {
-	s.LogicalPath, s.WebsiteRedirect = logical.Path, redirect
-	s.ContentType = canonicalType
+// canonicalObject is what a selection keeps of its canonical object.
+type canonicalObject struct {
+	key, contentType, redirect string
+	metadata                   storage.Metadata
+}
+
+func (p *resolvePlan) decorate(s *Selection, logical Object, canonical canonicalObject) {
+	s.LogicalPath, s.WebsiteRedirect = logical.Path, canonical.redirect
+	s.CanonicalKey, s.Canonical = canonical.key, canonical.metadata
+	s.ContentType = canonical.contentType
 	if s.ContentType == "" {
 		s.ContentType = ExtensionContentType(logical.Path)
 	}

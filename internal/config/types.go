@@ -24,6 +24,7 @@ type Config struct {
 	Errors           Errors            `yaml:"errors"`
 	Redirects        []redirect.Rule   `yaml:"redirects,omitempty"`
 	WebsiteRedirects *WebsiteRedirects `yaml:"website_redirects,omitempty"`
+	ClientRedirects  *ClientRedirects  `yaml:"client_redirects,omitempty"`
 	Headers          Headers           `yaml:"headers"`
 	CacheControl     CacheControl      `yaml:"cache_control"`
 	CORS             *CORS             `yaml:"cors,omitempty"`
@@ -174,6 +175,20 @@ type WebsiteRedirects struct {
 	Query    string `yaml:"query"`
 	External bool   `yaml:"external"`
 }
+
+// ClientRedirects answers with a redirect for an index object that is an
+// HTML redirect page: a small page that sends browsers to its destination
+// with a meta refresh or a script.
+type ClientRedirects struct {
+	Status         int      `yaml:"status"`
+	Detect         []string `yaml:"detect"`
+	MaxObjectBytes ByteSize `yaml:"max_object_bytes"`
+	Query          string   `yaml:"query"`
+	External       bool     `yaml:"external"`
+}
+
+// MaxClientRedirectBytes is the largest client_redirects.max_object_bytes.
+const MaxClientRedirectBytes = 64 << 10
 
 type Errors struct {
 	AccessDenied string `yaml:"access_denied"`

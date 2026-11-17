@@ -100,6 +100,7 @@ compression:
 spa:
   fallback: index.html
 website_redirects: {}
+client_redirects: {}
 `
 
 // derivedDefaults are fields documented as "Default: none" whose omitted value

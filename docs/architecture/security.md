@@ -15,7 +15,7 @@ The process reads the bucket with its own credentials and serves every object un
 :::
 
 ::: danger Publisher content is trusted
-Objects are served as they are stored: statica does not inspect or sanitize HTML, scripts or SVG, so anything placed under the prefix runs with your site's origin in visitors' browsers. Do not let untrusted users write under the publication prefix.
+Objects are served as they are stored: statica does not sanitize HTML, scripts or SVG, so anything placed under the prefix runs with your site's origin in visitors' browsers. Do not let untrusted users write under the publication prefix.
 :::
 
 statica does not authenticate visitors, filter requests or limit request rates: its [limits](./index.md#design-principles) protect the process, and a single client can still use all of the capacity they allow.
@@ -28,7 +28,7 @@ The origin client checks every key again before it sends a request: the key must
 
 ## Host never selects the origin
 
-The bucket, the endpoint and the publication prefix are fixed when the process starts. The `Host` of a request is validated, normalized and used for admission, logs, metrics and the host check of website redirects: it never selects a bucket, a prefix or an object, and it is not part of a memory cache entry's identity ([host admission](./request-flow.md#host-admission)). Forwarded host headers such as `X-Forwarded-Host` are never read. Redirect rules cannot be steered either: a destination's origin is written literally in the rule, and captured request values only fill its path and query. A [website redirect](./request-flow.md#website-redirects) takes its destination from the object; with `website_redirects.external: false`, statica compares an `https://` destination's host with the `Host` to decide whether to send it, and a client that sends another `Host` can only get a destination that the object already declares.
+The bucket, the endpoint and the publication prefix are fixed when the process starts. The `Host` of a request is validated, normalized and used for admission, logs, metrics and the host check of website redirects and redirect pages: it never selects a bucket, a prefix or an object, and it is not part of a memory cache entry's identity ([host admission](./request-flow.md#host-admission)). Forwarded host headers such as `X-Forwarded-Host` are never read. Redirect rules cannot be steered either: a destination's origin is written literally in the rule, and captured request values only fill its path and query. A [website redirect](./request-flow.md#website-redirects) takes its destination from the object; with `website_redirects.external: false`, statica compares an `https://` destination's host with the `Host` to decide whether to send it, and a client that sends another `Host` can only get a destination that the object already declares. A [redirect page](./request-flow.md#redirect-pages) takes its destination from the page, with the same check.
 
 The optional [`hosts`](../reference/configuration.md#hosts) list admits only the listed names; any other host gets 421 Misdirected Request before redirects, the memory cache or the origin are consulted. Rejected requests are counted by a fixed reason, without a host label, so names chosen by a client never reach the metrics through a rejection.
 
@@ -119,7 +119,7 @@ Go's HTTP server rejects a few malformed requests before statica sees them, for 
 
 ## Safe logging
 
-Log values are escaped and bounded, so a hostile value cannot start a new line or forge an event. Request headers other than the host, the destinations of redirect rules and of the trailing-slash redirect, provider error messages and credentials are never logged, and the values of the query parameters listed in `observability.redact_query_params` are redacted, also in the destination of a website redirect. Events go through a bounded queue: when standard output stalls, new events are dropped and counted instead of slowing requests. The [log reference](../reference/logs.md#what-is-never-logged) lists what is logged and what never is, and [Keep secrets and personal data out](../guide/logs.md#keep-secrets-and-personal-data-out) shows how to adjust redaction and client IPs.
+Log values are escaped and bounded, so a hostile value cannot start a new line or forge an event. Request headers other than the host, the destinations of redirect rules and of the trailing-slash redirect, provider error messages and credentials are never logged, and the values of the query parameters listed in `observability.redact_query_params` are redacted, also in the destination of a website redirect or a redirect page. Events go through a bounded queue: when standard output stalls, new events are dropped and counted instead of slowing requests. The [log reference](../reference/logs.md#what-is-never-logged) lists what is logged and what never is, and [Keep secrets and personal data out](../guide/logs.md#keep-secrets-and-personal-data-out) shows how to adjust redaction and client IPs.
 
 Metric labels never contain paths, object keys, queries, IP addresses or request IDs: request data reaches a label only as the `host` of admitted requests ([labels](../reference/metrics.md)).
 

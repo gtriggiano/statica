@@ -71,7 +71,8 @@ func parseLevel(text string) (slog.Level, error) {
 // target is unparseable), query_redaction_failed and path_truncated (only
 // when true), status (always), outcome, resolution, cache, cache_reason,
 // cache_coalesced (only when true), origin_key (only for object-backed
-// responses), redirect (the source of a redirect the object declared),
+// responses), redirect (the source of a redirect the object declared: its
+// website redirect location, or the meta refresh or script of its page),
 // location (the Location sent for it, query values redacted and bounded like
 // path), duration_ms (always), ttfb_ms (when a status was committed),
 // bytes_written (always), error_class, termination_reason, cache_diagnostic
