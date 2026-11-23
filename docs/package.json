@@ -11,7 +11,7 @@
   },
   "devDependencies": {
     "mermaid": "12.3.0",
-    "playwright-core": "1.65.0",
+    "playwright-core": "1.65.1",
     "vitepress": "1.6.4"
   },
   "overrides": {
