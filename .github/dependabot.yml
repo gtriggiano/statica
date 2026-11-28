@@ -12,6 +12,10 @@ updates:
       default-days: 7
     commit-message:
       prefix: deps
+    # The AWS SDK modules release together: one pull request updates them all.
+    groups:
+      aws:
+        patterns: ['github.com/aws/*']
   # The base image in the Dockerfile, pinned by digest. Monthly, because its
   # digest changes often and every update makes the Release PR propose a patch.
   - package-ecosystem: docker
