@@ -528,7 +528,7 @@ Longest wait for data while statica reads an object body from the origin. Time d
 **Default:** `2`\
 **Allowed:** `1` to `3`
 
-Attempts per origin request, the first included. Retries follow the AWS SDK's standard rules (server errors, throttling, connection errors), with a backoff of at most 500 ms. Reading a body is never retried once it has started. The origin health check always makes one attempt.
+Attempts per origin request, the first included. Retries follow the AWS SDK's standard rules (server errors, throttling, connection errors), with a backoff of at most 500 ms, which an `x-amz-retry-after` header in the origin's error response can extend by up to 5 s. Reading a body is never retried once it has started. The origin health check always makes one attempt.
 
 ### `s3.features`
 

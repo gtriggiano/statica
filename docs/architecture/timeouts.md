@@ -43,7 +43,7 @@ A body served from the memory cache has no origin reads: only the client write l
 | `server.read_header_timeout` | Receiving one request's headers and, on a new TLS connection, the handshake | The connection is closed without a response |
 | `server.response_header_timeout` | Preparation: from admission to the final response headers, including credential lookups, every origin attempt and its backoff, waits for shared fills and a guarded range read | 504 Gateway Timeout |
 | `s3.response_header_timeout` | Each origin HTTP attempt, from sending the request to receiving the response headers | The attempt fails as a timeout; another attempt may follow |
-| `s3.max_attempts` | Attempts per origin operation, retries included; the backoff between attempts is at most 500 ms | After the last attempt, the operation fails |
+| `s3.max_attempts` | Attempts per origin operation, retries included | After the last attempt, the operation fails |
 | `s3.read_idle_timeout` | One pending read of an origin body | 504 before the response headers, an aborted transfer after them |
 | `server.write_idle_timeout` | One pending write or flush to the client, headers included | The transfer is aborted |
 | `server.request_timeout` | The whole request from admission, body included; `0s` disables it | 504 before the response headers, an aborted transfer after them |
