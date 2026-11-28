@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.2.1](https://github.com/gtriggiano/statica/compare/v1.2.0...v1.2.1) (2026-11-28)
+
+
+### Dependencies
+
+* bump distroless/static-debian13 from `25ac8f0` to `8ce6dd8` ([#28](https://github.com/gtriggiano/statica/issues/28)) ([c682c09](https://github.com/gtriggiano/statica/commit/c682c095dec16ae8e263fcd5505cf0ef759be521))
+* bump github.com/aws/aws-sdk-go-v2/config from 1.33.16 to 1.33.21 ([#23](https://github.com/gtriggiano/statica/issues/23)) ([7e3c4c6](https://github.com/gtriggiano/statica/commit/7e3c4c670c91c87abdb7eb7fe3b3313b62ea8755))
+* bump github.com/aws/aws-sdk-go-v2/credentials from 1.20.16 to 1.21.3 ([#20](https://github.com/gtriggiano/statica/issues/20)) ([17fce83](https://github.com/gtriggiano/statica/commit/17fce8343c9196c1ebdfa03aa4a4907b0f929100))
+* bump github.com/aws/aws-sdk-go-v2/service/s3 from 1.114.9 to 1.116.0 ([#21](https://github.com/gtriggiano/statica/issues/21)) ([4ebae38](https://github.com/gtriggiano/statica/commit/4ebae38c572515a13ec11205e6a0155db90e1b69))
+* bump golang.org/x/net from 0.62.0 to 0.63.0 ([#32](https://github.com/gtriggiano/statica/issues/32)) ([cb03478](https://github.com/gtriggiano/statica/commit/cb03478ebac72b4c48dfdb6195c9e71525465774))
+
 ## [1.2.0](https://github.com/gtriggiano/statica/compare/v1.1.0...v1.2.0) (2026-11-17)
 
 
